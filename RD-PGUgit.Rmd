@@ -1,0 +1,1544 @@
+---
+title: "RD-PGU"
+author: "greyest"
+date: "2026-09-13"
+output: html_document
+---
+```{r}
+# =============================================================================
+# 01_carga_y_muestra_mini.R
+# =============================================================================
+gc()
+# --- 0. Librerías ------------------------------------------------------------
+if (!requireNamespace("dplyr", quietly = TRUE)) install.packages("dplyr")
+library(dplyr)
+
+# --- 1. Rutas a los archivos originales --------------------------------------
+# Ajusta si los .RData no están en el working directory actual.
+ruta_2022 <- "Data/casen_2022.RData"
+ruta_2017 <- "Data/casen_2017.RData"
+
+# --- 2. Carga genérica (sin asumir el nombre del objeto interno) ------------
+cargar_rdata_generico <- function(ruta) {
+  e <- new.env()
+  nombres_objetos <- load(ruta, envir = e)
+  cat("Archivo:", ruta, "\n")
+  cat("Objeto(s) encontrado(s) dentro del .RData:",
+      paste(nombres_objetos, collapse = ", "), "\n\n")
+  if (length(nombres_objetos) > 1) {
+    warning(
+      "El archivo ", ruta, " contiene más de un objeto. ",
+      "Se está usando el primero (", nombres_objetos[1], "); ",
+      "revisa manualmente si corresponde."
+    )
+  }
+  get(nombres_objetos[1], envir = e)
+}
+
+casen_2022 <- cargar_rdata_generico(ruta_2022)
+casen_2017 <- cargar_rdata_generico(ruta_2017)
+```
+
+
+```{r}
+# --- 3. Inspección inicial ----------------------------------------------------
+cat("CASEN 2022:", nrow(casen_2022), "filas x", ncol(casen_2022), "columnas\n")
+cat("CASEN 2017:", nrow(casen_2017), "filas x", ncol(casen_2017), "columnas\n\n")
+
+# --- 4. Búsqueda de variables clave por patrón de nombre ---------------------
+# Esto NO reemplaza revisar el libro de códigos oficial de cada ola -- es
+# solo un primer filtro automático para no tener que leerlo entero a mano.
+buscar_variables <- function(datos, patrones) {
+  nombres <- colnames(datos)
+  resultado <- lapply(patrones, function(p) nombres[grepl(p, nombres, ignore.case = TRUE)])
+  names(resultado) <- patrones
+  resultado
+}
+
+patrones_clave <- c(
+  edad            = "^edad$|^age$",
+  folio_hogar     = "folio|id_vivienda|id_hogar",
+  sexo            = "^sexo$",
+  actividad       = "^activ|ocupad|desocup|^o1$|fuerza.*trabajo",
+  horas_trabajo   = "horas.*trab|^o.*hrs|jornada",
+  pgu_subsidios   = "pgu|^y2507|pension|subsidio|apsv|^pbs|^aps",
+  ingreso         = "ytot|ing.*auton|ypc|autonomo",
+  ponderador      = "expr|expc|fexp"
+)
+
+cat("--- Variables candidatas en CASEN 2022 ---\n")
+print(buscar_variables(casen_2022, patrones_clave))
+
+cat("\n--- Variables candidatas en CASEN 2017 ---\n")
+print(buscar_variables(casen_2017, patrones_clave))
+
+cat("\n>>> PAUSA: revisa la salida de arriba, confirma contra el libro de\n",
+    ">>> códigos oficial los nombres reales de 'edad' y 'folio de hogar',\n",
+    ">>> y ajústalos en construir_mini() antes de seguir al Paso 5.\n\n", sep = "")
+```
+
+## Paso 4: Variables derivadas
+
+Nota: se salta el Paso 3 (mini-muestra a nivel de hogar) por decisión de trabajo. Las variables derivadas se construyen directamente sobre `casen_2022` y `casen_2017` (las bases completas cargadas en el Paso 1). Si más adelante se retoma el muestreo, la misma función sirve para la mini-muestra sin cambios -- y de todas formas el Paso 6 (banda de edad ±10 años) va a reducir mucho el tamaño de trabajo.
+
+**Importante:** los nombres en `config_2022` / `config_2017` de abajo son supuestos a partir de patrones típicos del libro de códigos CASEN (Paso 2, aún pendiente de confirmar). Antes de correr este bloque, reemplaza el lado derecho de cada entrada por el nombre real que te haya arrojado `buscar_variables()` en el Paso 1. La lógica de construcción (centrado, elegibilidad, tratamiento, outcomes, percentil) no depende de que aciertes los nombres a la primera -- solo de que `config` apunte a la columna correcta.
+
+```{r}
+# --- Configuración de nombres de variable por ola ----------------------------
+# edad y folio ya confirmados. AJUSTAMOS el resto contra el libro de códigos oficial.
+config_2022 <- list(
+  edad           = "edad",       # confirmada
+  folio          = "folio",      # confirmada
+  activ          = "activ",      # confirmada
+  horas          = "o10",        # confirmada -- horas habituales trabajo principal
+  pension_flags  = c("y28_1c1"), # confirmada -- ¿Recibe Pensión Garantizada Universal (PGU)? [vejez]
+  ing_autonomo   = "ypchautcor", # confirmada -- ingreso autónomo per cápita del hogar, ya corregido
+  ponderador     = "expr"        # factor de expansión -- confirmada
+)
+
+config_2017 <- list(
+  edad           = "edad",
+  folio          = "folio",
+  activ          = "activ",
+  horas          = "o10",
+  pension_flags  = c("y26_1a", "y26_1b"),  # confirmadas -- PBS Vejez (a) OR Jubilación Vejez c/APS (b)
+  ing_autonomo   = "ypchautcor",
+  ponderador     = "expr"        # confirmada
+)
+
+# --- Validación de que las columnas configuradas existen ---------------------
+validar_config <- function(datos, config, nombre_base) {
+  faltantes <- setdiff(unlist(config), colnames(datos))
+  if (length(faltantes) > 0) {
+    stop(
+      "En CASEN ", nombre_base, " faltan estas columnas configuradas: ",
+      paste(faltantes, collapse = ", "),
+      "\n>>> Revisa la salida de buscar_variables() del Paso 1 (patrones_clave) ",
+      "y corrige config_", nombre_base, " antes de continuar."
+    )
+  }
+  invisible(TRUE)
+}
+
+validar_config(casen_2022, config_2022, "2022")
+validar_config(casen_2017, config_2017, "2017")
+```
+
+```{r}
+# --- Diagnóstico de etiquetas (haven_labelled) --------------------------------
+cat("--- Categorías de activ, CASEN 2022 ---\n")
+print(table(haven::as_factor(casen_2022[[config_2022$activ]]), useNA = "always"))
+
+cat("\n--- Categorías de activ, CASEN 2017 ---\n")
+print(table(haven::as_factor(casen_2017[[config_2017$activ]]), useNA = "always"))
+```
+
+```{r}
+# --- Construcción de variables derivadas --------------------------------------
+
+# Convierte un flag categórico tipo "1. Sí" / "2. No" / "No sabe" / NA a
+# 1 / 0 / NA, tratando el NA "estructural" (pregunta no aplicable porque la
+# persona no reportó ninguna jubilación/pensión) como 0 -- es decir, no
+# recibe el beneficio. AJUSTAR si tras revisar el libro de códigos resulta
+# que ese NA en realidad es no-respuesta genuina y no un salto de flujo.
+flag_a_binario <- function(col) {
+  txt <- as.character(haven::as_factor(col))
+  dplyr::case_when(
+    grepl("S\u00ed", txt)        ~ 1L,   # "Sí" / "1. Sí"
+    grepl("^No sabe", txt)       ~ NA_integer_,
+    grepl("^No", txt)            ~ 0L,
+    is.na(txt)                   ~ 0L,   # NA estructural (no aplica) -> no recibe
+    TRUE                         ~ NA_integer_
+  )
+}
+
+# Combina 2+ flags binarios con un OR "informado": 1 si CUALQUIERA es 1;
+# 0 si ninguno es 1 pero al menos uno es 0 (informativo); NA solo si TODOS
+# son NA (ninguna información).
+combinar_flags_or <- function(mat_flags) {
+  mat_flags <- as.matrix(mat_flags)
+  tiene_si  <- rowSums(mat_flags == 1, na.rm = TRUE) > 0
+  tiene_no  <- rowSums(mat_flags == 0, na.rm = TRUE) > 0
+  out <- rep(NA_integer_, nrow(mat_flags))
+  out[tiene_no & !tiene_si] <- 0L
+  out[tiene_si]             <- 1L
+  out
+}
+
+construir_variables_derivadas <- function(datos, config, anio) {
+
+  # --- Tratamiento efectivo, ANTES del rename (usa nombres originales) --------
+  flags_mat <- sapply(config$pension_flags, function(col) flag_a_binario(datos[[col]]))
+  recibe_beneficio <- combinar_flags_or(flags_mat)
+
+  datos <- datos %>%
+    rename(
+      edad          = !!config$edad,
+      folio         = !!config$folio,
+      activ         = !!config$activ,
+      horas         = !!config$horas,
+      ing_autonomo  = !!config$ing_autonomo,
+      ponderador    = !!config$ponderador
+    ) %>%
+    mutate(recibe_beneficio = recibe_beneficio)
+
+  # --- Despegar etiquetas de las columnas numéricas -----------------------------
+  # zap_labels() deja el número "pelado"; as_factor() (usado abajo solo para
+  # `activ`) en cambio conserva el texto de la etiqueta, que es lo que
+  # queremos para no depender de adivinar el código numérico correcto.
+  datos <- datos %>%
+    mutate(
+      edad          = as.numeric(haven::zap_labels(edad)),
+      horas         = as.numeric(haven::zap_labels(horas)),
+      ing_autonomo  = as.numeric(haven::zap_labels(ing_autonomo)),
+      ponderador    = as.numeric(haven::zap_labels(ponderador)),
+      activ_txt     = as.character(haven::as_factor(activ))
+    )
+
+  datos <- datos %>%
+    mutate(
+      anio = anio,
+
+      # --- Corte centrado y elegibilidad --------------------------------------
+      edad_centrada = edad - 65,
+      elegible      = as.integer(edad >= 65),
+
+      # --- Outcomes de participación laboral -----------------------------------
+      # Se compara contra el TEXTO de la etiqueta (activ_txt), no contra un
+      # código numérico supuesto.
+      ocupado = case_when(
+        grepl("Ocupad", activ_txt, ignore.case = TRUE)  ~ 1L,
+        grepl("Desocupad|Inactiv", activ_txt, ignore.case = TRUE) ~ 0L,
+        TRUE ~ NA_integer_
+      ),
+      fuerza_trabajo = case_when(
+        grepl("Ocupad|Desocupad", activ_txt, ignore.case = TRUE) ~ 1L,
+        grepl("Inactiv", activ_txt, ignore.case = TRUE)           ~ 0L,
+        TRUE ~ NA_integer_
+      ),
+
+      # --- Horas trabajadas ------------------------------------------------------
+      # Se deja NA (no 0) para quienes no están ocupados, para no confundir
+      # "no aplica" con "cero horas" al correr el RD sobre horas.
+      horas_trabajadas = ifelse(ocupado == 1L, horas, NA_real_)
+    )
+
+  # --- Ingreso autónomo per cápita del hogar ------------------------------------
+  # ing_autonomo (ypchautcor) YA viene per cápita y corregido desde CASEN --
+  # no hay que dividir por tamaño de hogar (eso habría hecho doble conteo,
+  # ya que ypchautcor no es un ingreso total del hogar sino que ya está
+  # dividido). Se deja como group_by/ungroup por si más adelante se agrega
+  # algo a nivel hogar en este mismo bloque.
+  datos <- datos %>%
+    group_by(folio) %>%
+    mutate(ing_autonomo_hogar_pc = ing_autonomo) %>%
+    ungroup()
+
+  # --- Percentil de ingreso autónomo per cápita, ponderado por `ponderador` ----
+  # Se excluyen explícitamente los casos con ing_autonomo_hogar_pc o
+  # ponderador en NA del ranking -- si se dejan colar, order() los manda al
+  # final pero cumsum() igual los pisa, y un solo NA en ponderador contamina
+  # todo el acumulado desde ese punto en adelante.
+  valido <- !is.na(datos$ing_autonomo_hogar_pc) & !is.na(datos$ponderador)
+  ord    <- order(datos$ing_autonomo_hogar_pc[valido])
+  pond_acum <- cumsum(datos$ponderador[valido][ord]) / sum(datos$ponderador[valido])
+  idx_original <- which(valido)[ord]
+
+  datos$percentil_ing_pc <- NA_real_
+  datos$percentil_ing_pc[idx_original] <- pond_acum * 100
+
+  datos
+}
+
+casen_2022_d <- construir_variables_derivadas(casen_2022, config_2022, 2022)
+casen_2017_d <- construir_variables_derivadas(casen_2017, config_2017, 2017)
+```
+
+```{r}
+# --- Diagnóstico rápido de las variables construidas --------------------------
+# Sirve como primer chequeo de cordura antes de seguir: si "recibe_beneficio"
+# entre NO elegibles no es cercano a 0%, algo en pension_solid/activ está mal
+# mapeado y hay que revisar config_ANIO antes de avanzar al Paso 5.
+resumen_diagnostico <- function(datos, nombre) {
+  cat("===", nombre, "===\n")
+  cat("N:", nrow(datos), "\n")
+  cat("Elegibles (edad>=65):", sum(datos$elegible, na.rm = TRUE),
+      " (", round(mean(datos$elegible, na.rm = TRUE) * 100, 1), "%)\n")
+  cat("Reciben beneficio:", sum(datos$recibe_beneficio, na.rm = TRUE), "\n")
+  cat("Tasa de recepción entre elegibles:",
+      round(mean(datos$recibe_beneficio[datos$elegible == 1], na.rm = TRUE) * 100, 1), "%\n")
+  cat("Tasa de recepción entre NO elegibles (debiera ser ~0%, red flag si no):",
+      round(mean(datos$recibe_beneficio[datos$elegible == 0], na.rm = TRUE) * 100, 1), "%\n")
+  cat("Tasa de ocupación (entre no-NA):",
+      round(mean(datos$ocupado, na.rm = TRUE) * 100, 1), "%\n")
+  cat("Percentil de ingreso -- rango:",
+      round(range(datos$percentil_ing_pc, na.rm = TRUE), 1), "\n\n")
+}
+
+resumen_diagnostico(casen_2022_d, "CASEN 2022")
+resumen_diagnostico(casen_2017_d, "CASEN 2017")
+```
+
+```{r}
+# --- Verificar el warning "NAs introduced by coercion" en `horas` ------------
+# El warning al hacer as.numeric(zap_labels(horas)) sugiere que algunos
+# valores originales de `horas` no eran numéricos (ej. en blanco para quien
+# no trabaja). Esto es esperable y no debería afectar a quienes SÍ están
+# ocupados -- lo confirmamos aquí cruzando NA en horas vs. estado ocupacional.
+chequear_na_horas <- function(datos, nombre) {
+  cat("===", nombre, "===\n")
+  cat("Total NA en horas (post-conversión):", sum(is.na(datos$horas)), "\n")
+  print(table(
+    ocupado_status = datos$activ_txt,
+    horas_NA        = is.na(datos$horas)
+  ))
+  cat("\n")
+}
+
+chequear_na_horas(casen_2022_d, "CASEN 2022")
+chequear_na_horas(casen_2017_d, "CASEN 2017")
+```
+
+```{r}
+# --- Verificar ing_autonomo (yautcor) -----------------------------------------
+# El percentil salió con rango 0-100 sin errores, pero eso no confirma que
+# `yautcor` sea la variable correcta -- solo que es numérica y sin NAs que
+# rompan el ranking. Chequeamos: (a) su etiqueta real, (b) su distribución,
+# y (c) si existe alguna variable YA per cápita en la base (nos ahorraría
+# tener que dividir por tamaño de hogar a mano, y evitaría doble conteo si
+# yautcor ya viene corregida a nivel hogar de otra forma).
+cat("--- Etiqueta de yautcor ---\n")
+cat("2022:", attr(casen_2022[["yautcor"]], "label"), "\n")
+cat("2017:", attr(casen_2017[["yautcor"]], "label"), "\n\n")
+
+cat("--- Distribución de yautcor (post zap_labels) ---\n")
+cat("2022:\n"); print(summary(as.numeric(haven::zap_labels(casen_2022[["yautcor"]]))))
+cat("2017:\n"); print(summary(as.numeric(haven::zap_labels(casen_2017[["yautcor"]]))))
+
+cat("\n--- ¿Existe alguna variable de ingreso YA per cápita del hogar? ---\n")
+# (buscar_por_etiqueta se re-declara aquí porque el chunk que la define
+# "oficialmente" -- Búsqueda profunda -- viene más abajo en el documento)
+buscar_por_etiqueta <- function(datos, patrones) {
+  nombres <- colnames(datos)
+  etiquetas <- sapply(datos, function(col) {
+    et <- attr(col, "label")
+    if (is.null(et)) "" else et
+  })
+  coincide <- sapply(patrones, function(p) {
+    grepl(p, nombres, ignore.case = TRUE) | grepl(p, etiquetas, ignore.case = TRUE)
+  })
+  idx <- which(apply(as.matrix(coincide), 1, any))
+  data.frame(columna = nombres[idx], etiqueta = etiquetas[idx], row.names = NULL)
+}
+patrones_ingreso_pc <- c("percap", "per.c.pita", "^ypc", "autonomo.*pc|pc.*autonomo")
+cat("2022:\n"); print(buscar_por_etiqueta(casen_2022, patrones_ingreso_pc))
+cat("2017:\n"); print(buscar_por_etiqueta(casen_2017, patrones_ingreso_pc))
+```
+
+```{r}
+# --- Búsqueda profunda: horas trabajadas y pensión solidaria -----------------
+# o23 y y2507 eran supuestos sin verificar y resultaron ser incorrectos
+# (horas 100% NA; tasa de recepción del beneficio no tiene sentido). Acá se
+# busca por NOMBRE de columna y por ETIQUETA de variable (attr "label"),
+# que en CASEN suele ser mucho más informativa que el nombre corto (ej. la
+# columna puede llamarse "o10" pero su etiqueta dice "¿Cuántas horas...?").
+buscar_por_etiqueta <- function(datos, patrones) {
+  nombres <- colnames(datos)
+  etiquetas <- sapply(datos, function(col) {
+    et <- attr(col, "label")
+    if (is.null(et)) "" else et
+  })
+  coincide <- sapply(patrones, function(p) {
+    grepl(p, nombres, ignore.case = TRUE) | grepl(p, etiquetas, ignore.case = TRUE)
+  })
+  idx <- which(apply(as.matrix(coincide), 1, any))
+  data.frame(columna = nombres[idx], etiqueta = etiquetas[idx], row.names = NULL)
+}
+
+patrones_horas   <- c("hora", "jornada", "semana.*trabaj")
+patrones_pension <- c("pgu", "aps", "pbs", "solidari", "pensi.n.*b.sic", "garantizad")
+
+cat("=== Candidatos a HORAS TRABAJADAS -- CASEN 2022 ===\n")
+print(buscar_por_etiqueta(casen_2022, patrones_horas))
+
+cat("\n=== Candidatos a HORAS TRABAJADAS -- CASEN 2017 ===\n")
+print(buscar_por_etiqueta(casen_2017, patrones_horas))
+
+cat("\n=== Candidatos a PENSIÓN SOLIDARIA / PGU -- CASEN 2022 ===\n")
+print(buscar_por_etiqueta(casen_2022, patrones_pension))
+
+cat("\n=== Candidatos a PENSIÓN SOLIDARIA / PGU -- CASEN 2017 ===\n")
+print(buscar_por_etiqueta(casen_2017, patrones_pension))
+```
+
+```{r}
+# --- Chequear categorías de los flags de PGU / PBS-APS antes de usarlos ------
+cat("--- Categorías de y28_1c1 (CASEN 2022, ¿Recibe PGU?) ---\n")
+print(table(haven::as_factor(casen_2022[["y28_1c1"]]), useNA = "always"))
+
+cat("\n--- Categorías de y26_1a (CASEN 2017, Pensión Básica Solidaria Vejez) ---\n")
+print(table(haven::as_factor(casen_2017[["y26_1a"]]), useNA = "always"))
+
+cat("\n--- Categorías de y26_1b (CASEN 2017, Jubilación Vejez con APS) ---\n")
+print(table(haven::as_factor(casen_2017[["y26_1b"]]), useNA = "always"))
+```
+
+## Paso 5: Variable de derrame intrahogar (Opción B)
+
+Decisiones de diseño (ver discusión -- basadas en Bertrand, Miller & Mullainathan 2003, el precedente metodológico más directo para Opción B):
+
+- **Integrante de referencia:** el integrante **más cercano a 65 años** entre quienes están dentro de la banda del hogar. Se descartó restringir a "exactamente un integrante en la banda" y también descartó "contar a todos los elegibles" en un diseño apilado (una fila por cada elegible del hogar) -- este último habría roto los supuestos de `rdrobust` (una observación = una unidad con un solo running variable), complicado el clustering (habría que agrupar por edad entera Y por hogar a la vez) y contaminado McCrary/donut/placebos/`rdlocrand` más adelante. En su lugar, se preserva el espíritu de "contar a todos los elegibles" agregando `n_elegibles_hogar` como covariable y como corte para un chequeo de robustez (1 vs. 2+ elegibles).
+- **Otros adultos mayores (65+) no-referencia:** se EXCLUYEN del pool de "otros integrantes en edad de trabajar" (así lo hace Bertrand et al., restringiendo su outcome a 16-50 años). No es una concesión de alcance: por definición esas personas no son "población en edad de trabajar", y además podrían ser beneficiarias directas, lo que mezclaría el derrame con el efecto directo. Esto aplica a CUALQUIER integrante elegible del hogar, sea o no el de referencia -- no solo a quien cae en la banda.
+- **Unidad de análisis:** persona (igual que Bertrand et al.). Cada "otro integrante" válido es una observación, con la variable de corte, elegibilidad y tratamiento efectivo DEL HOGAR (heredadas de su integrante de referencia) más sus propios outcomes. Como varios "otros integrantes" pueden compartir hogar, los errores estándar de la Opción B deben agruparse por `folio` (no solo por edad entera como en la Opción A).
+- **Rango "en edad de trabajar":** 18-64 años (parametrizable). El marco teórico no fija un rango numérico, pero habla de "hijos adultos, cónyuges más jóvenes" -- así que se excluye a menores de 18 para no mezclar con población en edad escolar (65+ ya queda excluido por la regla anterior).
+
+```{r}
+# --- Construcción de la muestra de derrame intrahogar (Opción B) --------------
+banda_derrame      <- 10  # ancho provisorio de la banda de "cerca del corte";
+                           # el Paso 6 fija la banda definitiva para la Opción A
+                           # y el Paso 11 la varía como chequeo de robustez --
+                           # aquí se puede recalcular con otro valor sin tocar
+                           # el resto del código.
+edad_trabajar_min  <- 18
+edad_trabajar_max  <- 64  # los 65+ ya quedan excluidos por elegible == 0 abajo,
+                           # este límite es solo para no mezclar con < 18 años
+
+construir_derrame_intrahogar <- function(datos, banda = banda_derrame,
+                                          edad_min = edad_trabajar_min,
+                                          edad_max = edad_trabajar_max) {
+
+  datos <- datos %>%
+    mutate(
+      .id_fila         = dplyr::row_number(),  # id temporal, solo para identificar
+                                                 # sin ambigüedad a la persona de
+                                                 # referencia más abajo (por si dos
+                                                 # integrantes comparten edad exacta)
+      cerca_del_corte  = !is.na(edad_centrada) & abs(edad_centrada) <= banda
+    )
+
+  # Integrante de referencia = el más cercano a 65 entre los "cerca_del_corte"
+  # del hogar (con with_ties = FALSE se rompe cualquier empate exacto tomando
+  # el primero en orden de fila -- no hay un criterio teórico para desempatar,
+  # así que se deja explícito por si se quiere revisar más adelante).
+  referencia_hogar <- datos %>%
+    filter(cerca_del_corte) %>%
+    group_by(folio) %>%
+    dplyr::slice_min(order_by = abs(edad_centrada), n = 1, with_ties = FALSE) %>%
+    ungroup() %>%
+    transmute(
+      folio,
+      id_referencia          = .id_fila,
+      edad_centrada_hogar    = edad_centrada,
+      elegible_hogar         = elegible,
+      recibe_beneficio_hogar = recibe_beneficio
+    )
+
+  # n_elegibles_hogar: cuenta a TODOS los elegibles del hogar (no solo al de
+  # referencia). Covariable / corte de robustez, no restringe la muestra.
+  n_elegibles_hogar <- datos %>%
+    group_by(folio) %>%
+    summarise(n_elegibles_hogar = sum(elegible, na.rm = TRUE), .groups = "drop")
+
+  hogares_validos <- referencia_hogar %>%
+    left_join(n_elegibles_hogar, by = "folio")
+
+  # "Otros integrantes en edad de trabajar": se excluye a la persona de
+  # referencia (por id_fila, no por cercanía -- así un segundo integrante
+  # cerca del corte pero AÚN NO elegible, ej. 63 años, sí puede entrar al
+  # pool) y a cualquier integrante YA elegible (65+), esté o no cerca del
+  # corte. Luego se restringe al rango etario de trabajo.
+  datos %>%
+    inner_join(hogares_validos, by = "folio") %>%
+    filter(.id_fila != id_referencia, elegible == 0) %>%
+    filter(edad >= edad_min, edad <= edad_max) %>%
+    select(
+      folio, anio,
+      edad_centrada_hogar, elegible_hogar, recibe_beneficio_hogar,
+      n_elegibles_hogar,
+      edad, es_mujer, ocupado, fuerza_trabajo, horas_trabajadas,
+      ing_autonomo_hogar_pc, percentil_ing_pc, ponderador
+    )
+}
+
+# NOTA: la llamada de prueba a construir_derrame_intrahogar() se movió más
+# abajo a propósito -- en este punto del documento `es_mujer` todavía no
+# existe (se calcula recién en "Gráfico de covariables predeterminadas"),
+# y la función la necesita en su select() final. El Paso 6 y el Paso 9 ya
+# vuelven a llamar construir_derrame_intrahogar() cuando `es_mujer` sí
+# está disponible, así que no hace falta duplicar la llamada aquí.
+```
+
+## Gráfico motivador: discontinuidad en torno a los 65 años (Opción A)
+
+Este gráfico se puede construir ya, sin esperar al diseño RD completo (Pasos 6-8): `rdrobust::rdplot()` promedia el outcome en bins de la variable de corte y ajusta una regresión local por lado, extrapolada hasta el umbral -- eso es lo que muestra el salto. No usa todavía el ancho de banda óptimo, la corrección de sesgo ni el clustering por edad entera (eso es lo que se agrega recién en el Paso 8 para el LATE puntual); aquí es solo el chequeo visual.
+
+Se usa una banda ±15 años como default de visualización, sin efecto sobre el ancho de banda que se elija después en el Paso 6.
+
+```{r}
+if (!requireNamespace("rdrobust", quietly = TRUE)) install.packages("rdrobust")
+library(rdrobust)
+
+banda_grafico <- 15
+
+graficar_discontinuidad <- function(datos, anio) {
+
+  datos_g <- datos %>% filter(abs(edad_centrada) <= banda_grafico)
+
+  cat("\n===", anio, "-- Primera etapa: recibe_beneficio vs. edad_centrada ===\n")
+  rdplot(
+    y = datos_g$recibe_beneficio,
+    x = datos_g$edad_centrada,
+    c = 0,
+    title = paste0("Primera etapa (", anio, "): recepción del beneficio en torno a los 65 años"),
+    x.label = "Edad centrada (edad - 65)",
+    y.label = "Probabilidad de recibir PGU / PBS-APS"
+  )
+
+  cat("\n===", anio, "-- Forma reducida: ocupado vs. edad_centrada ===\n")
+  rdplot(
+    y = datos_g$ocupado,
+    x = datos_g$edad_centrada,
+    c = 0,
+    title = paste0("Forma reducida (", anio, "): participación laboral en torno a los 65 años"),
+    x.label = "Edad centrada (edad - 65)",
+    y.label = "Ocupado (0/1)"
+  )
+
+  cat("\n===", anio, "-- Forma reducida: horas_trabajadas vs. edad_centrada (solo ocupados) ===\n")
+  datos_horas <- datos_g %>% filter(!is.na(horas_trabajadas))
+  rdplot(
+    y = datos_horas$horas_trabajadas,
+    x = datos_horas$edad_centrada,
+    c = 0,
+    title = paste0("Forma reducida (", anio, "): horas trabajadas en torno a los 65 años"),
+    x.label = "Edad centrada (edad - 65)",
+    y.label = "Horas habituales trabajadas (solo ocupados)"
+  )
+}
+
+graficar_discontinuidad(casen_2022_d, "CASEN 2022")
+```
+
+```{r}
+graficar_discontinuidad(casen_2017_d, "CASEN 2017")
+```
+## Gráfico motivador (versión lineal local, p=1) -- comparación
+
+`rdplot()` con el polinomio por defecto (grado 4, ventana ±15) puede suavizar
+un salto real si el efecto es chico frente a la tendencia general de retiro
+en torno a los 65. Se repite `ocupado` con ajuste lineal local (`p = 1`) y una
+ventana más angosta (±7), más parecida a lo que efectivamente se va a estimar
+en el Paso 8 -- esto es solo para inspección visual, no reemplaza la
+estimación puntual con ancho de banda óptimo.
+
+```{r}
+banda_grafico_lineal <- 7
+
+graficar_participacion_lineal <- function(datos, anio) {
+  datos_g <- datos %>% filter(abs(edad_centrada) <= banda_grafico_lineal)
+  rdplot(
+    y = datos_g$ocupado,
+    x = datos_g$edad_centrada,
+    c = 0,
+    p = 1,
+    title = paste0("Forma reducida, ajuste lineal (", anio, "): participación laboral"),
+    x.label = "Edad centrada (edad - 65)",
+    y.label = "Ocupado (0/1)"
+  )
+}
+
+graficar_participacion_lineal(casen_2022_d, "CASEN 2022")
+graficar_participacion_lineal(casen_2017_d, "CASEN 2017")
+```
+
+## Balance de covariables predeterminadas (adelanto): búsqueda de variables
+
+Siguiendo la referencia (Cattaneo, Idrogo & Titiunik), el chequeo de balance de covariables usa la elegibilidad (`T = elegible`), no la recepción efectiva del beneficio -- ver discusión. Antes de graficar, se buscan los nombres reales de covariables predeterminadas candidatas: sexo, escolaridad, zona urbano/rural, estado civil.
+
+```{r}
+patrones_covariables <- c("^sexo$", "^esc$|escolaridad|a.os.*estudio", "^zona$|urban|rural", "^ecivil$|estado.*civil", "^region$")
+
+cat("=== Candidatos a covariables predeterminadas -- CASEN 2022 ===\n")
+print(buscar_por_etiqueta(casen_2022, patrones_covariables))
+
+cat("\n=== Candidatos a covariables predeterminadas -- CASEN 2017 ===\n")
+print(buscar_por_etiqueta(casen_2017, patrones_covariables))
+```
+
+
+## Gráfico de covariables predeterminadas (balance visual, adelanto del Paso 7)
+
+`rdplot(x = edad_centrada, c = 0)` compara automáticamente por el lado de la
+elegibilidad (T), no de la recepción efectiva (D) -- es justo el chequeo de
+falsificación que pide el libro de referencia. Si alguna covariable
+predeterminada mostrara un salto en el corte, sería evidencia de que el
+grupo "justo elegible" y el "justo no elegible" no son comparables, lo que
+pondría en duda la identificación. `ecivil` y `region` quedan para la tabla
+de balance formal del Paso 7 (categóricas multi-nivel).
+
+```{r}
+agregar_covariables <- function(datos) {
+  datos %>%
+    mutate(
+      esc_num  = as.numeric(haven::zap_labels(esc)),
+      sexo_txt = as.character(haven::as_factor(sexo)),
+      es_mujer = as.integer(grepl("Mujer", sexo_txt, ignore.case = TRUE))
+    )
+}
+
+casen_2022_d <- agregar_covariables(casen_2022_d)
+casen_2017_d <- agregar_covariables(casen_2017_d)
+
+graficar_covariables <- function(datos, anio) {
+  datos_g <- datos %>% filter(abs(edad_centrada) <= banda_grafico)
+
+  cat("\n===", anio, "-- Balance: años de escolaridad ===\n")
+  rdplot(
+    y = datos_g$esc_num, x = datos_g$edad_centrada, c = 0,
+    title = paste0("Balance (", anio, "): años de escolaridad en torno a los 65"),
+    x.label = "Edad centrada (edad - 65)", y.label = "Años de escolaridad"
+  )
+
+  cat("\n===", anio, "-- Balance: proporción mujer ===\n")
+  rdplot(
+    y = datos_g$es_mujer, x = datos_g$edad_centrada, c = 0,
+    title = paste0("Balance (", anio, "): proporción mujer en torno a los 65"),
+    x.label = "Edad centrada (edad - 65)", y.label = "Proporción mujer"
+  )
+}
+
+graficar_covariables(casen_2022_d, "CASEN 2022")
+```
+
+```{r}
+graficar_covariables(casen_2017_d, "CASEN 2017")
+```
+
+## Paso 6: Banda de edad y tratamiento de factores de expansión
+
+**Banda de edad:** se restringe la muestra de trabajo a `|edad_centrada| <= 10`
+(55-75 años) como banda de partida para Opción A. Esto NO reemplaza al ancho
+de banda óptimo de `rdrobust` (que se calcula dentro de cada regresión del
+Paso 8 y normalmente es más angosto) -- es solo el universo de datos sobre el
+que se trabaja de aquí en adelante, para no cargar innecesariamente toda la
+base. `rdrobust` sigue recalculando su propio bandwidth óptimo dentro de esta
+banda; el Paso 11 varía este ±10 como chequeo de robustez.
+
+**Factores de expansión:** siguiendo la práctica estándar en RD con datos de
+encuesta (y lo que hace el propio `rdrobust`), **no se usan los ponderadores
+muestrales (`expr`) en la estimación RD misma** -- el estimador local ya
+identifica el efecto a partir de comparar unidades muy cerca del corte, donde
+la composición muestral importa poco, y ponderar podría introducir sesgo si
+el diseño muestral está correlacionado con la edad. Sí se van a usar
+`expr` para las estadísticas descriptivas (Paso 12, caracterización de la
+población beneficiaria) y quedan disponibles en la base por si algún chequeo
+de robustez del Paso 11 lo amerita.
+
+```{r}
+banda_principal <- 10
+
+casen_2022_banda <- casen_2022_d %>% filter(abs(edad_centrada) <= banda_principal)
+casen_2017_banda <- casen_2017_d %>% filter(abs(edad_centrada) <= banda_principal)
+
+derrame_2022_banda <- construir_derrame_intrahogar(casen_2022_d, banda = banda_principal)
+derrame_2017_banda <- construir_derrame_intrahogar(casen_2017_d, banda = banda_principal)
+
+cat("N Opción A, CASEN 2022 (banda ±10):", nrow(casen_2022_banda), "\n")
+cat("N Opción A, CASEN 2017 (banda ±10):", nrow(casen_2017_banda), "\n")
+cat("N Opción B, CASEN 2022 (banda ±10):", nrow(derrame_2022_banda), "\n")
+cat("N Opción B, CASEN 2017 (banda ±10):", nrow(derrame_2017_banda), "\n")
+```
+## Chequeo visual del balance de sexo con ajuste lineal local (p=1)
+
+```{r}
+graficar_covariable_lineal <- function(datos, anio) {
+  datos_g <- datos %>% filter(abs(edad_centrada) <= banda_grafico_lineal)
+  rdplot(
+    y = datos_g$es_mujer, x = datos_g$edad_centrada, c = 0, p = 1,
+    title = paste0("Balance, ajuste lineal (", anio, "): proporción mujer"),
+    x.label = "Edad centrada (edad - 65)", y.label = "Proporción mujer"
+  )
+}
+
+graficar_covariable_lineal(casen_2022_d, "CASEN 2022")
+graficar_covariable_lineal(casen_2017_d, "CASEN 2017")
+```
+
+## Test formal de balance: ¿es real el salto en proporción mujer (2022)?
+
+Estimación puntual con `rdrobust` (no solo inspección visual), usando
+`es_mujer` como outcome, `edad_centrada` como running variable y `c = 0`
+-- esto ya compara por elegibilidad (T), como corresponde a un chequeo de
+falsificación según la referencia. Se agrupan errores estándar por edad
+entera (`cluster = edad`), adelantando la corrección de Lee & Card por
+variable de corte discreta que de todos modos íbamos a aplicar en el Paso 8
+-- sin este ajuste, el error estándar quedaría artificialmente chico y
+podríamos declarar "significativo" algo que no lo es tanto.
+
+```{r}
+balance_es_mujer_2022 <- rdrobust(
+  y       = casen_2022_banda$es_mujer,
+  x       = casen_2022_banda$edad_centrada,
+  c       = 0,
+  cluster = casen_2022_banda$edad
+)
+cat("=== Balance es_mujer -- CASEN 2022 ===\n")
+summary(balance_es_mujer_2022)
+
+balance_es_mujer_2017 <- rdrobust(
+  y       = casen_2017_banda$es_mujer,
+  x       = casen_2017_banda$edad_centrada,
+  c       = 0,
+  cluster = casen_2017_banda$edad
+)
+cat("\n=== Balance es_mujer -- CASEN 2017 ===\n")
+summary(balance_es_mujer_2017)
+```
+## Balance de covariables: tiene_pareja, vive_rm, esc + densidad (McCrary/rddensity)
+
+Antes de construir los binarios, chequeo rápido de categorías de `ecivil` y
+`region` (mismo patrón que con `activ` -- no adivinar códigos).
+
+```{r}
+cat("--- Categorías de ecivil, CASEN 2022 ---\n")
+print(table(haven::as_factor(casen_2022_d$ecivil), useNA = "always"))
+cat("\n--- Categorías de ecivil, CASEN 2017 ---\n")
+print(table(haven::as_factor(casen_2017_d$ecivil), useNA = "always"))
+
+cat("\n--- Categorías de region, CASEN 2022 ---\n")
+print(table(haven::as_factor(casen_2022_d$region), useNA = "always"))
+cat("\n--- Categorías de region, CASEN 2017 ---\n")
+print(table(haven::as_factor(casen_2017_d$region), useNA = "always"))
+```
+
+```{r}
+# --- Construir tiene_pareja y vive_rm ------------------------------------------
+agregar_covariables_2 <- function(datos) {
+  datos %>%
+    mutate(
+      ecivil_txt   = as.character(haven::as_factor(ecivil)),
+      tiene_pareja = as.integer(grepl("Casad|Conviv|Acuerdo", ecivil_txt, ignore.case = TRUE)),
+      region_txt   = as.character(haven::as_factor(region)),
+      vive_rm      = as.integer(grepl("Metropolitana", region_txt, ignore.case = TRUE))
+    )
+}
+
+casen_2022_d <- agregar_covariables_2(casen_2022_d)
+casen_2017_d <- agregar_covariables_2(casen_2017_d)
+
+# Re-derivar las versiones con banda ±10 para que incluyan las columnas nuevas
+casen_2022_banda <- casen_2022_d %>% filter(abs(edad_centrada) <= banda_principal)
+casen_2017_banda <- casen_2017_d %>% filter(abs(edad_centrada) <= banda_principal)
+
+cat("Tasa tiene_pareja -- 2022:", round(mean(casen_2022_d$tiene_pareja, na.rm=TRUE)*100,1),
+    "% | 2017:", round(mean(casen_2017_d$tiene_pareja, na.rm=TRUE)*100,1), "%\n")
+cat("Tasa vive_rm -- 2022:", round(mean(casen_2022_d$vive_rm, na.rm=TRUE)*100,1),
+    "% | 2017:", round(mean(casen_2017_d$vive_rm, na.rm=TRUE)*100,1), "%\n")
+```
+
+```{r}
+# --- Balance formal: esc, tiene_pareja, vive_rm --------------------------------
+balance_covariable <- function(datos, var, anio) {
+  y <- datos[[var]]
+  valido <- !is.na(y) & !is.na(datos$edad_centrada)
+  m <- rdrobust(
+    y       = y[valido],
+    x       = datos$edad_centrada[valido],
+    c       = 0,
+    cluster = datos$edad[valido]
+  )
+  cat("\n===", anio, "--", var, "===\n")
+  print(summary(m))
+  invisible(m)
+}
+
+balance_esc_2022          <- balance_covariable(casen_2022_banda, "esc_num",       "CASEN 2022")
+balance_esc_2017          <- balance_covariable(casen_2017_banda, "esc_num",       "CASEN 2017")
+balance_tienepareja_2022  <- balance_covariable(casen_2022_banda, "tiene_pareja",  "CASEN 2022")
+balance_tienepareja_2017  <- balance_covariable(casen_2017_banda, "tiene_pareja",  "CASEN 2017")
+balance_viverm_2022       <- balance_covariable(casen_2022_banda, "vive_rm",       "CASEN 2022")
+balance_viverm_2017       <- balance_covariable(casen_2017_banda, "vive_rm",       "CASEN 2017")
+```
+
+```{r}
+# --- Test de densidad (McCrary / Cattaneo-Jansson-Ma) --------------------------
+# rddensity es la versión moderna del test de McCrary (misma lógica: si hay
+# manipulación de la variable de corte, la densidad de edad_centrada debería
+# saltar en 0). Con una variable de corte DISCRETA (edad en años enteros,
+# "Mass points detected" que ya nos venía avisando rdrobust), este test es una
+# aproximación -- el chequeo específico para datos discretos es el test
+# binomial de rdlocrand que ya está planificado para el Paso 11.
+if (!requireNamespace("rddensity", quietly = TRUE)) install.packages("rddensity")
+library(rddensity)
+
+cat("=== Test de densidad -- CASEN 2022 ===\n")
+densidad_2022 <- rddensity(X = casen_2022_d$edad_centrada)
+summary(densidad_2022)
+rdplotdensity(densidad_2022, casen_2022_d$edad_centrada,
+               xlabel = "Edad centrada (edad - 65)", ylabel = "Densidad")
+
+cat("\n=== Test de densidad -- CASEN 2017 ===\n")
+densidad_2017 <- rddensity(X = casen_2017_d$edad_centrada)
+summary(densidad_2017)
+rdplotdensity(densidad_2017, casen_2017_d$edad_centrada,
+               xlabel = "Edad centrada (edad - 65)", ylabel = "Densidad")
+```
+
+## Paso 8: RD principal, Opción A (sharp/ITT y fuzzy/2SLS)
+
+**Nota sobre el Paso 11 (queda anotado para cuando lleguemos ahí):** el test
+de densidad del Paso 7 fue significativo en ambos años, pero el patrón
+oscilante por ventana (no significativo en ±5, sí en ventanas adyacentes) y
+el hecho de que la edad no es auto-reportable de forma manipulable para
+calificar al beneficio apuntan a *heaping* de edad (preferencia por
+redondear a múltiplos de 5) más que a manipulación real del corte -- se
+documenta como supuesto del estudio, no se investiga más a fondo por ahora.
+Como consecuencia, el **donut RD (excluir ±1 año alrededor del corte) deja
+de ser un chequeo de robustez opcional y pasa a ser obligatorio** en el
+Paso 11, para descartar que ese heaping esté inflando la estimación
+principal.
+
+**Covariable de control por defecto:** `vive_rm`, porque fue la única
+covariable predeterminada que mostró un salto significativo y consistente
+entre 2022 y 2017 en el Paso 7 (posible migración al momento de jubilar).
+Se reporta la especificación con y sin `vive_rm` como chequeo de robustez.
+
+Siguiendo la referencia (Cattaneo, Idrogo & Titiunik): el ITT/sharp usa la
+elegibilidad como "tratamiento" directo sobre el outcome; el fuzzy usa
+`fuzzy = recibe_beneficio` en `rdrobust`, que calcula un solo ancho de banda
+óptimo para el cociente ITT/primera-etapa y entrega el IC robusto del LATE
+directamente (en vez de dividir dos regresiones separadas a mano). Errores
+agrupados por edad entera (`cluster = edad`) en ambos casos, por la
+naturaleza discreta de la variable de corte.
+
+```{r}
+estimar_rd_principal <- function(datos, y_var, d_var = "recibe_beneficio",
+                                  covs_var = NULL, anio, outcome_label,
+                                  h_fijo = NULL, b_fijo = NULL) {
+  y <- datos[[y_var]]
+  x <- datos$edad_centrada
+  d <- datos[[d_var]]
+  valido <- !is.na(y) & !is.na(x) & !is.na(d)
+  if (!is.null(covs_var)) valido <- valido & stats::complete.cases(datos[covs_var])
+
+  covs <- if (!is.null(covs_var)) as.matrix(datos[valido, covs_var, drop = FALSE]) else NULL
+
+  cat("\n===", anio, "--", outcome_label, ": ITT / sharp (elegibilidad -> outcome) ===\n")
+  m_itt <- rdrobust(y = y[valido], x = x[valido], c = 0,
+                     cluster = datos$edad[valido], covs = covs,
+                     h = h_fijo, b = b_fijo)
+  print(summary(m_itt))
+
+  cat("\n===", anio, "--", outcome_label, ": Fuzzy / 2SLS (recibe_beneficio -> outcome) ===\n")
+  m_fuzzy <- rdrobust(y = y[valido], x = x[valido], c = 0, fuzzy = d[valido],
+                       cluster = datos$edad[valido], covs = covs,
+                       h = h_fijo, b = b_fijo)
+  print(summary(m_fuzzy))
+
+  invisible(list(itt = m_itt, fuzzy = m_fuzzy))
+}
+
+covariable_control <- "vive_rm"
+
+res_2022_ocupado <- estimar_rd_principal(casen_2022_banda, "ocupado",
+                       covs_var = covariable_control, anio = "CASEN 2022", outcome_label = "Ocupado")
+res_2022_horas   <- estimar_rd_principal(casen_2022_banda, "horas_trabajadas",
+                       covs_var = covariable_control, anio = "CASEN 2022", outcome_label = "Horas trabajadas")
+res_2017_ocupado <- estimar_rd_principal(casen_2017_banda, "ocupado",
+                       covs_var = covariable_control, anio = "CASEN 2017", outcome_label = "Ocupado")
+res_2017_horas   <- estimar_rd_principal(casen_2017_banda, "horas_trabajadas",
+                       covs_var = covariable_control, anio = "CASEN 2017", outcome_label = "Horas trabajadas")
+```
+
+```{r}
+# --- Chequeo de robustez: mismas estimaciones SIN covariable de control -------
+cat(">>> Sin vive_rm (comparar magnitud/significancia con la versión de arriba)\n")
+
+res_2022_ocupado_sc <- estimar_rd_principal(casen_2022_banda, "ocupado",
+                          covs_var = NULL, anio = "CASEN 2022", outcome_label = "Ocupado (sin covs)")
+res_2017_ocupado_sc <- estimar_rd_principal(casen_2017_banda, "ocupado",
+                          covs_var = NULL, anio = "CASEN 2017", outcome_label = "Ocupado (sin covs)")
+```
+## Donut RD (validación obligatoria por el heaping detectado en el Paso 7)
+
+Se excluyen las observaciones dentro de un radio de la edad de corte antes de
+volver a estimar -- si el resultado principal del Paso 8 fuera un artefacto
+del heaping de edad (exceso/defecto de gente reportando exactamente 64/65/66
+años), la estimación debería cambiar sustancialmente al sacar esas
+observaciones. Se prueban dos radios (1 y 2 años) como consta habitual en la
+literatura de donut RD.
+
+```{r}
+aplicar_donut <- function(datos, radio) {
+  datos %>% filter(abs(edad_centrada) > radio)
+}
+
+correr_donut <- function(datos, y_var, radios, anio, outcome_label, h_fijo, b_fijo) {
+  for (r in radios) {
+    cat("\n>>> Donut radio =", r, "año(s) --", anio, "--", outcome_label,
+        "(h fijo =", round(h_fijo, 3), ", b fijo =", round(b_fijo, 3),
+        "= los mismos de la especificación principal del Paso 8) \n")
+    datos_donut <- aplicar_donut(datos, r)
+    estimar_rd_principal(datos_donut, y_var, covs_var = covariable_control,
+                          anio = anio, outcome_label = outcome_label,
+                          h_fijo = h_fijo, b_fijo = b_fijo)
+  }
+}
+
+# Se reutilizan h Y b ya estimados en el Paso 8 para cada combinación
+# año/outcome -- fijar solo h (sin b) hace que rdrobust ponga b = h por
+# defecto, lo que colapsa rho = h/b = 1 y rompe la inferencia robusta
+# (produce NaN/Inf: el error anterior "486592" y compañía).
+correr_donut(casen_2022_banda, "ocupado", c(1, 2), "CASEN 2022", "Ocupado",
+             h_fijo = res_2022_ocupado$itt$bws[1, 1], b_fijo = res_2022_ocupado$itt$bws[2, 1])
+correr_donut(casen_2017_banda, "ocupado", c(1, 2), "CASEN 2017", "Ocupado",
+             h_fijo = res_2017_ocupado$itt$bws[1, 1], b_fijo = res_2017_ocupado$itt$bws[2, 1])
+correr_donut(casen_2022_banda, "horas_trabajadas", c(1, 2), "CASEN 2022", "Horas trabajadas",
+             h_fijo = res_2022_horas$itt$bws[1, 1], b_fijo = res_2022_horas$itt$bws[2, 1])
+```
+
+## Paso 9: RD Opción B (derrame intrahogar)
+
+Se re-deriva la muestra de derrame para que incluya `es_mujer` del "otro
+integrante" (necesario para el chequeo de heterogeneidad por sexo motivado
+por Bertrand, Miller & Mullainathan 2003 -- esa columna no existía todavía
+cuando se corrió el Paso 5 por primera vez, pero `casen_2022_d`/`casen_2017_d`
+ya la tienen desde el Paso 7 en adelante).
+
+Diferencias respecto a la Opción A (ver decisiones de diseño del Paso 5):
+- Running variable = `edad_centrada_hogar` (heredada del integrante de
+  referencia, no la edad propia del "otro integrante").
+- Tratamiento = `recibe_beneficio_hogar`.
+- Errores agrupados por **`folio`**, no por edad entera -- varios "otros
+  integrantes" de un mismo hogar comparten el mismo valor de la variable de
+  corte, así que agrupar por edad subestimaría la correlación intra-hogar.
+- `n_elegibles_hogar` como covariable de control por defecto (en vez de
+  `vive_rm`, que no se calculó para el "otro integrante").
+
+```{r}
+# --- Limpieza de memoria ---------------------------------------------------
+# casen_2022_d / casen_2017_d todavía arrastran TODAS las columnas
+# originales de CASEN (cientos), porque construir_variables_derivadas() usa
+# mutate()/rename(), que no elimina columnas -- multiplicado por >200 mil
+# filas, es pesado. Se recorta a solo lo que se usa de aquí en adelante y se
+# fuerza garbage collection, para evitar errores de "cannot allocate vector".
+columnas_necesarias <- c(
+  "folio", "anio", "edad", "edad_centrada", "elegible", "recibe_beneficio",
+  "ocupado", "fuerza_trabajo", "horas_trabajadas",
+  "ing_autonomo_hogar_pc", "percentil_ing_pc", "ponderador",
+  "esc_num", "es_mujer", "tiene_pareja", "vive_rm"
+)
+
+casen_2022_d <- casen_2022_d %>% select(all_of(columnas_necesarias))
+casen_2017_d <- casen_2017_d %>% select(all_of(columnas_necesarias))
+casen_2022_banda <- casen_2022_banda %>% select(all_of(columnas_necesarias))
+casen_2017_banda <- casen_2017_banda %>% select(all_of(columnas_necesarias))
+
+gc()
+```
+
+```{r}
+derrame_2022_banda <- construir_derrame_intrahogar(casen_2022_d, banda = banda_principal)
+derrame_2017_banda <- construir_derrame_intrahogar(casen_2017_d, banda = banda_principal)
+
+cat("N Opción B (actualizado) -- 2022:", nrow(derrame_2022_banda),
+    "| 2017:", nrow(derrame_2017_banda), "\n")
+```
+
+```{r}
+estimar_rd_derrame <- function(datos, y_var, d_var = "recibe_beneficio_hogar",
+                                covs_var = NULL, anio, outcome_label,
+                                h_fijo = NULL, b_fijo = NULL) {
+  y <- datos[[y_var]]
+  x <- datos$edad_centrada_hogar
+  d <- datos[[d_var]]
+  valido <- !is.na(y) & !is.na(x) & !is.na(d)
+  if (!is.null(covs_var)) valido <- valido & stats::complete.cases(datos[covs_var])
+
+  covs <- if (!is.null(covs_var)) as.matrix(datos[valido, covs_var, drop = FALSE]) else NULL
+
+  cat("\n===", anio, "--", outcome_label, ": ITT / sharp (elegibilidad hogar -> outcome) ===\n")
+  m_itt <- rdrobust(y = y[valido], x = x[valido], c = 0,
+                     cluster = datos$folio[valido], covs = covs,
+                     h = h_fijo, b = b_fijo)
+  print(summary(m_itt))
+
+  cat("\n===", anio, "--", outcome_label, ": Fuzzy / 2SLS (recibe_beneficio_hogar -> outcome) ===\n")
+  m_fuzzy <- rdrobust(y = y[valido], x = x[valido], c = 0, fuzzy = d[valido],
+                       cluster = datos$folio[valido], covs = covs,
+                       h = h_fijo, b = b_fijo)
+  print(summary(m_fuzzy))
+
+  invisible(list(itt = m_itt, fuzzy = m_fuzzy))
+}
+
+covariable_control_derrame <- "n_elegibles_hogar"
+
+res_derrame_2022_ocupado <- estimar_rd_derrame(derrame_2022_banda, "ocupado",
+                              covs_var = covariable_control_derrame,
+                              anio = "CASEN 2022", outcome_label = "Ocupado (otros integrantes)")
+res_derrame_2017_ocupado <- estimar_rd_derrame(derrame_2017_banda, "ocupado",
+                              covs_var = covariable_control_derrame,
+                              anio = "CASEN 2017", outcome_label = "Ocupado (otros integrantes)")
+res_derrame_2022_horas   <- estimar_rd_derrame(derrame_2022_banda, "horas_trabajadas",
+                              covs_var = covariable_control_derrame,
+                              anio = "CASEN 2022", outcome_label = "Horas trabajadas (otros integrantes)")
+res_derrame_2017_horas   <- estimar_rd_derrame(derrame_2017_banda, "horas_trabajadas",
+                              covs_var = covariable_control_derrame,
+                              anio = "CASEN 2017", outcome_label = "Horas trabajadas (otros integrantes)")
+```
+
+```{r}
+# --- Heterogeneidad por sexo del "otro integrante" -----------------------------
+# Bertrand, Miller & Mullainathan (2003) encuentran el derrame concentrado en
+# HOMBRES en edad prima -- la oferta laboral femenina resulta "no afectada"
+# en su estudio. Se replica el corte acá como hipótesis a testear, no como
+# supuesto.
+cat(">>> Heterogeneidad por sexo (hipótesis de Bertrand et al. 2003: efecto concentrado en hombres)\n")
+
+derrame_2022_hombres <- derrame_2022_banda %>% filter(es_mujer == 0)
+derrame_2022_mujeres <- derrame_2022_banda %>% filter(es_mujer == 1)
+
+res_derrame_2022_ocupado_hombres <- estimar_rd_derrame(derrame_2022_hombres, "ocupado",
+                                       anio = "CASEN 2022", outcome_label = "Ocupado -- HOMBRES otros integrantes")
+res_derrame_2022_ocupado_mujeres <- estimar_rd_derrame(derrame_2022_mujeres, "ocupado",
+                                       anio = "CASEN 2022", outcome_label = "Ocupado -- MUJERES otros integrantes")
+```
+
+## Paso 10: Extensión RD-DiD (percentil 60-90 de ingreso, 2022 vs. 2017)
+
+**Lógica del diseño** (ver marco teórico): para hogares entre el percentil 60
+y 90 de ingreso autónomo per cápita, la PGU (2022) los volvió elegibles al
+pilar solidario por primera vez -- el sistema anterior (PBS-APS) cubría solo
+hasta el 60% más pobre. Es decir: en esta franja de ingreso específica, el
+salto en elegibilidad a los 65 años **no existía en 2017 y sí existe en
+2022**. La comparación entre el salto RD de 2022 y el de 2017, DENTRO de esta
+misma franja de ingreso, es la variación diferencias-en-discontinuidades.
+
+**Diseño de código (autocontenido, no depende de funciones de pasos
+anteriores):** en vez de una llamada fuzzy que mezcla primera etapa y efecto
+de tratamiento en un solo objeto interno (difícil de extraer por partes), se
+hacen **tres llamadas `rdrobust` separadas y estructuralmente idénticas**:
+FS (D como outcome), ITT/sharp (Y como outcome) y LATE (fuzzy). Cada una
+devuelve una fila extraíble con la misma función, sin parsear texto ni
+depender de la estructura interna del objeto fuzzy.
+
+```{r}
+# --- Extracción tidy de un objeto rdrobust --------------------------------
+extraer_robusto <- function(modelo) {
+  fila <- grep("Robust", rownames(modelo$coef), ignore.case = TRUE)
+  data.frame(
+    estimate = unname(modelo$coef[fila, 1]),
+    se       = unname(modelo$se[fila, 1]),
+    ci_low   = unname(modelo$ci[fila, 1]),
+    ci_high  = unname(modelo$ci[fila, 2]),
+    p        = unname(modelo$pv[fila, 1]),
+    h        = unname(modelo$bws[1, 1]),
+    b        = unname(modelo$bws[2, 1]),
+    n_efec   = sum(modelo$N_h)
+  )
+}
+
+# --- Estimación completa (FS + ITT + LATE) para un caso ----------------------
+estimar_rd_completo <- function(datos, y_var, d_var, x_var, cluster_var,
+                                 covs_var = NULL, caso = "",
+                                 h_fijo = NULL, b_fijo = NULL) {
+  y <- datos[[y_var]]; d <- datos[[d_var]]; x <- datos[[x_var]]
+  cl <- datos[[cluster_var]]
+  valido <- !is.na(y) & !is.na(d) & !is.na(x) & !is.na(cl)
+  if (!is.null(covs_var)) valido <- valido & stats::complete.cases(datos[covs_var])
+  covs <- if (!is.null(covs_var)) as.matrix(datos[valido, covs_var, drop = FALSE]) else NULL
+
+  m_fs    <- rdrobust(y = d[valido], x = x[valido], c = 0, cluster = cl[valido], covs = covs,
+                       h = h_fijo, b = b_fijo)
+  m_itt   <- rdrobust(y = y[valido], x = x[valido], c = 0, cluster = cl[valido], covs = covs,
+                       h = h_fijo, b = b_fijo)
+  m_late  <- rdrobust(y = y[valido], x = x[valido], c = 0, fuzzy = d[valido],
+                       cluster = cl[valido], covs = covs, h = h_fijo, b = b_fijo)
+
+  dplyr::bind_rows(
+    cbind(caso = caso, tipo = "FS",   extraer_robusto(m_fs)),
+    cbind(caso = caso, tipo = "ITT",  extraer_robusto(m_itt)),
+    cbind(caso = caso, tipo = "LATE", extraer_robusto(m_late))
+  )
+}
+```
+
+```{r}
+# --- Submuestra percentil 60-90 de ingreso ------------------------------------
+casen_2022_p6090 <- casen_2022_banda %>% filter(percentil_ing_pc >= 60, percentil_ing_pc <= 90)
+casen_2017_p6090 <- casen_2017_banda %>% filter(percentil_ing_pc >= 60, percentil_ing_pc <= 90)
+derrame_2022_p6090 <- derrame_2022_banda %>% filter(percentil_ing_pc >= 60, percentil_ing_pc <= 90)
+derrame_2017_p6090 <- derrame_2017_banda %>% filter(percentil_ing_pc >= 60, percentil_ing_pc <= 90)
+
+cat("N percentil 60-90 -- Opción A 2022:", nrow(casen_2022_p6090),
+    "| 2017:", nrow(casen_2017_p6090), "\n")
+cat("N percentil 60-90 -- Opción B 2022:", nrow(derrame_2022_p6090),
+    "| 2017:", nrow(derrame_2017_p6090), "\n")
+```
+
+```{r}
+# --- RD-DiD: Opción A y Opción B, percentil 60-90, ambos años ----------------
+resultados_diff_disc <- dplyr::bind_rows(
+  estimar_rd_completo(casen_2022_p6090, "ocupado", "recibe_beneficio", "edad_centrada", "edad",
+                       covs_var = "vive_rm", caso = "A | 2022 | Ocupado | p60-90"),
+  estimar_rd_completo(casen_2017_p6090, "ocupado", "recibe_beneficio", "edad_centrada", "edad",
+                       covs_var = "vive_rm", caso = "A | 2017 | Ocupado | p60-90"),
+  estimar_rd_completo(casen_2022_p6090, "horas_trabajadas", "recibe_beneficio", "edad_centrada", "edad",
+                       covs_var = "vive_rm", caso = "A | 2022 | Horas | p60-90"),
+  estimar_rd_completo(casen_2017_p6090, "horas_trabajadas", "recibe_beneficio", "edad_centrada", "edad",
+                       covs_var = "vive_rm", caso = "A | 2017 | Horas | p60-90"),
+  estimar_rd_completo(derrame_2022_p6090, "ocupado", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                       covs_var = "n_elegibles_hogar", caso = "B | 2022 | Ocupado | p60-90"),
+  estimar_rd_completo(derrame_2017_p6090, "ocupado", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                       covs_var = "n_elegibles_hogar", caso = "B | 2017 | Ocupado | p60-90"),
+  estimar_rd_completo(derrame_2022_p6090, "horas_trabajadas", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                       covs_var = "n_elegibles_hogar", caso = "B | 2022 | Horas | p60-90"),
+  estimar_rd_completo(derrame_2017_p6090, "horas_trabajadas", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                       covs_var = "n_elegibles_hogar", caso = "B | 2017 | Horas | p60-90")
+)
+
+print(resultados_diff_disc, row.names = FALSE)
+```
+
+```{r}
+# --- Test formal de diferencia (2022 vs 2017), solo para LATE e ITT ----------
+# CASEN 2022 y 2017 son muestras INDEPENDIENTES (olas distintas, no panel), así
+# que Var(diff) = Var(2022) + Var(2017) sin término de covarianza -- test
+# estándar de diferencia entre dos estimaciones independientes.
+test_diff_rd_did <- function(tabla, caso_2022, caso_2017, tipo_metrica) {
+  f22 <- tabla[tabla$caso == caso_2022 & tabla$tipo == tipo_metrica, ]
+  f17 <- tabla[tabla$caso == caso_2017 & tabla$tipo == tipo_metrica, ]
+  diff <- f22$estimate - f17$estimate
+  se_diff <- sqrt(f22$se^2 + f17$se^2)
+  z <- diff / se_diff
+  p <- 2 * (1 - pnorm(abs(z)))
+  data.frame(
+    comparacion = paste(tipo_metrica, ":", caso_2022, "vs", caso_2017),
+    diff = diff, se_diff = se_diff, z = z, p = p,
+    ci_low = diff - 1.96 * se_diff, ci_high = diff + 1.96 * se_diff
+  )
+}
+
+diff_A_ocupado <- test_diff_rd_did(resultados_diff_disc, "A | 2022 | Ocupado | p60-90", "A | 2017 | Ocupado | p60-90", "LATE")
+diff_A_horas   <- test_diff_rd_did(resultados_diff_disc, "A | 2022 | Horas | p60-90",   "A | 2017 | Horas | p60-90",   "LATE")
+diff_B_ocupado <- test_diff_rd_did(resultados_diff_disc, "B | 2022 | Ocupado | p60-90", "B | 2017 | Ocupado | p60-90", "LATE")
+diff_B_horas   <- test_diff_rd_did(resultados_diff_disc, "B | 2022 | Horas | p60-90",   "B | 2017 | Horas | p60-90",   "LATE")
+
+print(dplyr::bind_rows(diff_A_ocupado, diff_A_horas, diff_B_ocupado, diff_B_horas), row.names = FALSE)
+```
+
+```{r}
+# --- Diff-test también con ITT --------------------------------------------
+# El LATE de ocupado 2017 (p60-90) sale implausible (+74.8pp) por una primera
+# etapa débil (8.3%) que infla el cociente -- el diff-test de LATE hereda ese
+# ruido. El ITT no tiene el problema de división: es una comparación directa,
+# más confiable cuando la primera etapa es débil en alguno de los dos años.
+diff_A_ocupado_itt <- test_diff_rd_did(resultados_diff_disc, "A | 2022 | Ocupado | p60-90", "A | 2017 | Ocupado | p60-90", "ITT")
+diff_A_horas_itt   <- test_diff_rd_did(resultados_diff_disc, "A | 2022 | Horas | p60-90",   "A | 2017 | Horas | p60-90",   "ITT")
+
+print(dplyr::bind_rows(diff_A_ocupado_itt, diff_A_horas_itt), row.names = FALSE)
+```
+
+## Gráfico de coeficientes: FS, ITT y LATE para todos los casos
+
+Se reutiliza `estimar_rd_completo()` para recalcular, de forma tidy, los
+casos principales de Opción A (Paso 8) y Opción B (Paso 9). Junto con el Paso 10 (percentil 60-90), esto arma la tabla
+completa para graficar.
+
+```{r}
+if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+if (!requireNamespace("tidyr", quietly = TRUE)) install.packages("tidyr")
+library(ggplot2)
+library(tidyr)
+
+resultados_principales <- dplyr::bind_rows(
+  estimar_rd_completo(casen_2022_banda, "ocupado", "recibe_beneficio", "edad_centrada", "edad",
+                       covs_var = "vive_rm", caso = "A | 2022 | Ocupado | muestra completa"),
+  estimar_rd_completo(casen_2017_banda, "ocupado", "recibe_beneficio", "edad_centrada", "edad",
+                       covs_var = "vive_rm", caso = "A | 2017 | Ocupado | muestra completa"),
+  estimar_rd_completo(casen_2022_banda, "horas_trabajadas", "recibe_beneficio", "edad_centrada", "edad",
+                       covs_var = "vive_rm", caso = "A | 2022 | Horas | muestra completa"),
+  estimar_rd_completo(casen_2017_banda, "horas_trabajadas", "recibe_beneficio", "edad_centrada", "edad",
+                       covs_var = "vive_rm", caso = "A | 2017 | Horas | muestra completa"),
+  estimar_rd_completo(derrame_2022_banda, "ocupado", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                       covs_var = "n_elegibles_hogar", caso = "B | 2022 | Ocupado | muestra completa"),
+  estimar_rd_completo(derrame_2017_banda, "ocupado", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                       covs_var = "n_elegibles_hogar", caso = "B | 2017 | Ocupado | muestra completa"),
+  estimar_rd_completo(derrame_2022_banda, "horas_trabajadas", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                       covs_var = "n_elegibles_hogar", caso = "B | 2022 | Horas | muestra completa"),
+  estimar_rd_completo(derrame_2017_banda, "horas_trabajadas", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                       covs_var = "n_elegibles_hogar", caso = "B | 2017 | Horas | muestra completa")
+)
+
+resultados_todos <- dplyr::bind_rows(resultados_principales, resultados_diff_disc) %>%
+  tidyr::separate(caso, into = c("opcion", "anio", "outcome", "muestra"), sep = " \\| ") %>%
+  mutate(tipo = factor(tipo, levels = c("FS", "ITT", "LATE")))
+
+write.csv(resultados_todos, "resultados_rd_todos.csv", row.names = FALSE)
+print(resultados_todos, row.names = FALSE)
+```
+
+```{r fig.width=10, fig.height=6}
+graficar_coeficientes <- function(datos, outcome_filtro, titulo) {
+  datos %>%
+    filter(outcome == outcome_filtro) %>%
+    mutate(caso_label = paste(opcion, anio, muestra, sep = " | ")) %>%
+    ggplot(aes(x = estimate, y = caso_label, color = anio)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+    geom_pointrange(aes(xmin = ci_low, xmax = ci_high), position = position_dodge(width = 0.3)) +
+    facet_wrap(~tipo, scales = "free_x") +
+    labs(title = titulo, x = "Estimador (IC 95% robusto)", y = NULL, color = "Año") +
+    theme_minimal()
+}
+
+graficar_coeficientes(resultados_todos, "Ocupado", "FS / ITT / LATE -- Outcome: Ocupado")
+```
+
+```{r fig.width=10, fig.height=6}
+graficar_coeficientes(resultados_todos, "Horas", "FS / ITT / LATE -- Outcome: Horas trabajadas")
+```
+
+## Paso 11: Robustez -- búsqueda de variable placebo
+
+Se busca una variable de resultado que, por diseño, no pueda ser afectada
+por la elegibilidad a la PGU en el corto plazo (tenencia de la vivienda es
+la candidata típica en esta literatura: muy improbable que cambie en el
+corto plazo por un aumento de ingreso de un integrante del hogar).
+
+```{r}
+patrones_placebo <- c("tenencia|propietari|arrendat|vivienda.*propia", "^v[0-9]", "material.*vivienda")
+
+cat("=== Candidatos a variable placebo -- CASEN 2022 ===\n")
+print(buscar_por_etiqueta(casen_2022, patrones_placebo))
+
+cat("\n=== Candidatos a variable placebo -- CASEN 2017 ===\n")
+print(buscar_por_etiqueta(casen_2017, patrones_placebo))
+```
+
+## Paso 11: Donut RD extendido (Opción A y B, ambos outcomes, ambos años)
+
+Se reutiliza `estimar_rd_completo()`, ahora con soporte para `h_fijo`/`b_fijo`
+-- el ancho de banda se calcula UNA VEZ (radio=0, sin donut) y se mantiene
+fijo al variar el radio, por la misma razón de antes: dejar que `rdrobust`
+recalcule el ancho de banda automáticamente con un hueco en el centro produce
+`NA`/`Inf` (no hay datos pegados a `c=0` para estimar la densidad local).
+
+```{r}
+correr_donut_generico <- function(datos, y_var, d_var, x_var, cluster_var, covs_var,
+                                   opcion, anio, outcome, radios = c(1, 2)) {
+  base <- estimar_rd_completo(datos, y_var, d_var, x_var, cluster_var, covs_var, caso = "base")
+  h_fijo <- base$h[base$tipo == "ITT"]
+  b_fijo <- base$b[base$tipo == "ITT"]
+  base$donut <- 0
+
+  resultados <- list(base)
+  for (r in radios) {
+    datos_donut <- datos %>% filter(abs(.data[[x_var]]) > r)
+    res_r <- estimar_rd_completo(datos_donut, y_var, d_var, x_var, cluster_var, covs_var,
+                                  caso = "donut", h_fijo = h_fijo, b_fijo = b_fijo)
+    res_r$donut <- r
+    resultados[[length(resultados) + 1]] <- res_r
+  }
+  out <- dplyr::bind_rows(resultados)
+  out$opcion <- opcion; out$anio <- anio; out$outcome <- outcome
+  out
+}
+
+resultados_donut <- dplyr::bind_rows(
+  correr_donut_generico(casen_2022_banda, "ocupado", "recibe_beneficio", "edad_centrada", "edad",
+                         "vive_rm", "A", "2022", "Ocupado"),
+  correr_donut_generico(casen_2017_banda, "ocupado", "recibe_beneficio", "edad_centrada", "edad",
+                         "vive_rm", "A", "2017", "Ocupado"),
+  correr_donut_generico(casen_2022_banda, "horas_trabajadas", "recibe_beneficio", "edad_centrada", "edad",
+                         "vive_rm", "A", "2022", "Horas"),
+  correr_donut_generico(casen_2017_banda, "horas_trabajadas", "recibe_beneficio", "edad_centrada", "edad",
+                         "vive_rm", "A", "2017", "Horas"),
+  correr_donut_generico(derrame_2022_banda, "ocupado", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                         "n_elegibles_hogar", "B", "2022", "Ocupado"),
+  correr_donut_generico(derrame_2017_banda, "ocupado", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                         "n_elegibles_hogar", "B", "2017", "Ocupado"),
+  correr_donut_generico(derrame_2022_banda, "horas_trabajadas", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                         "n_elegibles_hogar", "B", "2022", "Horas"),
+  correr_donut_generico(derrame_2017_banda, "horas_trabajadas", "recibe_beneficio_hogar", "edad_centrada_hogar", "folio",
+                         "n_elegibles_hogar", "B", "2017", "Horas")
+)
+
+write.csv(resultados_donut, "resultados_donut.csv", row.names = FALSE)
+print(resultados_donut %>% filter(tipo == "LATE"), row.names = FALSE)
+```
+
+```{r fig.width=9, fig.height=6}
+resultados_donut %>%
+  filter(tipo == "LATE") %>%
+  ggplot(aes(x = donut, y = estimate, color = anio)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_pointrange(aes(ymin = ci_low, ymax = ci_high), position = position_dodge(width = 0.3)) +
+  facet_grid(outcome ~ opcion, scales = "free_y",
+             labeller = labeller(opcion = c(A = "Opción A", B = "Opción B"))) +
+  scale_x_continuous(breaks = c(0, 1, 2)) +
+  labs(title = "Sensibilidad del LATE al radio del donut",
+       subtitle = "Ancho de banda fijo (el de la especificación sin donut); si el punto se aleja mucho\nde 0 años de radio o el IC deja de cruzar el 0 de forma inestable, es señal de fragilidad",
+       x = "Radio del donut (años excluidos alrededor del corte)",
+       y = "LATE (IC 95% robusto)", color = "Año") +
+  theme_minimal()
+```
+
+## Paso 11 (continuación): Sensibilidad a anchos de banda alternativos
+
+Se fija una grilla de anchos de banda (en años) y se mantiene `b = 1.5h` en
+todos los puntos de la grilla (razón `h/b` similar a la observada en las
+especificaciones principales, ~0.65-0.7) -- igual que en el donut, fijar
+`h` y `b` explícitamente evita el error de bandwidth automática con NA/Inf.
+El punto "óptimo" (bandwidth `mserd` de `rdrobust`) se muestra aparte como
+referencia.
+
+```{r}
+grid_bw <- c(2, 3, 5, 7, 10)
+
+sensibilidad_bw <- function(datos, y_var, d_var, x_var, cluster_var, covs_var,
+                             opcion, anio, outcome) {
+  # Punto de referencia: bandwidth óptima automática
+  base <- estimar_rd_completo(datos, y_var, d_var, x_var, cluster_var, covs_var, caso = "óptimo (mserd)")
+  base$bw_grid <- base$h[1]
+  base$es_optimo <- TRUE
+
+  resultados <- list(base)
+  for (h in grid_bw) {
+    res_h <- estimar_rd_completo(datos, y_var, d_var, x_var, cluster_var, covs_var,
+                                  caso = paste0("h=", h), h_fijo = h, b_fijo = h * 1.5)
+    res_h$bw_grid <- h
+    res_h$es_optimo <- FALSE
+    resultados[[length(resultados) + 1]] <- res_h
+  }
+  out <- dplyr::bind_rows(resultados)
+  out$opcion <- opcion; out$anio <- anio; out$outcome <- outcome
+  out
+}
+
+resultados_bw <- dplyr::bind_rows(
+  sensibilidad_bw(casen_2022_banda, "ocupado", "recibe_beneficio", "edad_centrada", "edad",
+                  "vive_rm", "A", "2022", "Ocupado"),
+  sensibilidad_bw(casen_2017_banda, "ocupado", "recibe_beneficio", "edad_centrada", "edad",
+                  "vive_rm", "A", "2017", "Ocupado"),
+  sensibilidad_bw(casen_2022_banda, "horas_trabajadas", "recibe_beneficio", "edad_centrada", "edad",
+                  "vive_rm", "A", "2022", "Horas"),
+  sensibilidad_bw(casen_2017_banda, "horas_trabajadas", "recibe_beneficio", "edad_centrada", "edad",
+                  "vive_rm", "A", "2017", "Horas")
+)
+
+write.csv(resultados_bw, "resultados_bandwidth.csv", row.names = FALSE)
+print(resultados_bw %>% filter(tipo == "LATE") %>% arrange(anio, outcome, bw_grid), row.names = FALSE)
+```
+
+```{r fig.width=9, fig.height=5}
+resultados_bw %>%
+  filter(tipo == "LATE") %>%
+  ggplot(aes(x = bw_grid, y = estimate, color = anio, shape = es_optimo)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_pointrange(aes(ymin = ci_low, ymax = ci_high), position = position_dodge(width = 0.4)) +
+  facet_wrap(~outcome, scales = "free_y") +
+  scale_shape_manual(values = c(`TRUE` = 17, `FALSE` = 16), guide = "none") +
+  labs(title = "Sensibilidad del LATE al ancho de banda (Opción A)",
+       subtitle = "Triángulo = bandwidth óptima (mserd); círculos = bandwidths fijas alternativas",
+       x = "Ancho de banda (años)", y = "LATE (IC 95% robusto)", color = "Año") +
+  theme_minimal()
+```
+
+## Paso 11 (continuación): rdlocrand -- comparación local 64 vs. 65 años
+
+Enfoque de aleatorización local (Cattaneo, Titiunik & Vázquez-Bare), como
+complemento al enfoque de continuidad usado en todo lo anterior -- especialmente
+relevante dado el heaping de edad ya documentado. Ventana más angosta posible:
+`edad_centrada` en `[-1, 0]`, es decir, comparar exactamente a quienes tienen
+64 años contra quienes tienen 65. Es un test de aleatorización sobre la
+asignación (T), coherente con el principio de "validar siempre sobre T, nunca
+sobre D".
+
+```{r}
+if (!requireNamespace("rdlocrand", quietly = TRUE)) install.packages("rdlocrand")
+library(rdlocrand)
+
+correr_rdlocrand <- function(datos, y_var, anio, outcome_label) {
+  y <- datos[[y_var]]
+  x <- datos$edad_centrada
+  valido <- !is.na(y) & !is.na(x)
+  cat("\n===", anio, "--", outcome_label, ": rdlocrand, ventana [-1, 0] (64 vs 65) ===\n")
+  rdrandinf(Y = y[valido], R = x[valido], wl = -1, wr = 0, seed = 1234)
+}
+
+correr_rdlocrand(casen_2022_banda, "ocupado", "CASEN 2022", "Ocupado")
+correr_rdlocrand(casen_2017_banda, "ocupado", "CASEN 2017", "Ocupado")
+correr_rdlocrand(casen_2022_banda, "horas_trabajadas", "CASEN 2022", "Horas trabajadas")
+correr_rdlocrand(casen_2017_banda, "horas_trabajadas", "CASEN 2017", "Horas trabajadas")
+```
+
+## Paso 11 (continuación): variable placebo -- tenencia de la vivienda
+
+```{r}
+cat("--- Categorías de ten_viv, CASEN 2022 ---\n")
+print(table(haven::as_factor(casen_2022[["ten_viv"]]), useNA = "always"))
+
+cat("\n--- Categorías de ten_viv, CASEN 2017 ---\n")
+print(table(haven::as_factor(casen_2017[["ten_viv"]]), useNA = "always"))
+```
+
+```{r}
+# --- Construir vivienda_propia y correr el test placebo -----------------------
+# Placebo: la tenencia de la vivienda es muy improbable que responda a la
+# elegibilidad a la PGU en el corto plazo (comprar/vender una vivienda no es
+# una decisión que se tome en meses por un aumento de pensión). Se testea
+# igual que las covariables predeterminadas: sobre T (edad_centrada), nunca
+# condicionando en D.
+casen_2022_d$vivienda_propia <- as.integer(
+  as.character(haven::as_factor(casen_2022[["ten_viv"]])) == "Propia"
+)
+casen_2017_d$vivienda_propia <- as.integer(
+  as.character(haven::as_factor(casen_2017[["ten_viv"]])) == "Propia"
+)
+casen_2022_banda$vivienda_propia <- casen_2022_d$vivienda_propia[match(casen_2022_banda$folio, casen_2022_d$folio)]
+casen_2017_banda$vivienda_propia <- casen_2017_d$vivienda_propia[match(casen_2017_banda$folio, casen_2017_d$folio)]
+
+placebo_2022 <- rdrobust(y = casen_2022_banda$vivienda_propia, x = casen_2022_banda$edad_centrada,
+                          c = 0, cluster = casen_2022_banda$edad)
+cat("=== Placebo (vivienda propia) -- CASEN 2022 ===\n")
+summary(placebo_2022)
+
+placebo_2017 <- rdrobust(y = casen_2017_banda$vivienda_propia, x = casen_2017_banda$edad_centrada,
+                          c = 0, cluster = casen_2017_banda$edad)
+cat("\n=== Placebo (vivienda propia) -- CASEN 2017 ===\n")
+summary(placebo_2017)
+```
+
+## Paso 11 (continuación): donut RD para el resultado central del Paso 10
+
+El -39.9h de diferencia (RD-DiD, percentil 60-90) es una magnitud grande --
+antes de reportarlo tal cual, se chequea que sobreviva a excluir
+observaciones pegadas al corte, igual que se hizo con la especificación
+principal del Paso 8. Se ubica acá (no en el Paso 10) porque recién acá
+existe `correr_donut_generico()`.
+
+```{r}
+donut_p6090_horas_2022 <- correr_donut_generico(casen_2022_p6090, "horas_trabajadas", "recibe_beneficio",
+                                                 "edad_centrada", "edad", "vive_rm", "A", "2022", "Horas_p6090")
+donut_p6090_horas_2017 <- correr_donut_generico(casen_2017_p6090, "horas_trabajadas", "recibe_beneficio",
+                                                 "edad_centrada", "edad", "vive_rm", "A", "2017", "Horas_p6090")
+
+resultados_donut_p6090 <- dplyr::bind_rows(donut_p6090_horas_2022, donut_p6090_horas_2017)
+print(resultados_donut_p6090 %>% filter(tipo == "LATE"), row.names = FALSE)
+
+# Diferencia 2022 vs 2017 en cada radio de donut, para ver si el RD-DiD
+# también sobrevive al donut, no solo cada RD individual.
+for (r in c(0, 1, 2)) {
+  f22 <- resultados_donut_p6090 %>% filter(anio == "2022", tipo == "LATE", donut == r)
+  f17 <- resultados_donut_p6090 %>% filter(anio == "2017", tipo == "LATE", donut == r)
+  diff <- f22$estimate - f17$estimate
+  se_diff <- sqrt(f22$se^2 + f17$se^2)
+  z <- diff / se_diff
+  p <- 2 * (1 - pnorm(abs(z)))
+  cat("Donut radio", r, ": diff =", round(diff, 2), " se =", round(se_diff, 2),
+      " p =", round(p, 4), "\n")
+}
+```
+```{r}
+
+cat("\n=== Diferencia (ITT) por radio de donut -- más informativa dado que LATE es inestable aquí ===\n")
+for (r in c(0, 1, 2)) {
+  f22 <- resultados_donut_p6090 %>% filter(anio == "2022", tipo == "ITT", donut == r)
+  f17 <- resultados_donut_p6090 %>% filter(anio == "2017", tipo == "ITT", donut == r)
+  diff <- f22$estimate - f17$estimate
+  se_diff <- sqrt(f22$se^2 + f17$se^2)
+  z <- diff / se_diff
+  p <- 2 * (1 - pnorm(abs(z)))
+  cat("Donut radio", r, ": diff =", round(diff, 2), " se =", round(se_diff, 2),
+      " p =", round(p, 4), "\n")
+}
+```
+
+## Figuras reproducibles para el informe extenso
+
+Las Figuras 2, 3 y 4 del informe extenso (`informe_extenso_PGU.Rmd`) se
+habían construido fuera de este pipeline, a partir de los mismos números
+pero con `matplotlib` en Python -- una brecha de reproducibilidad real para
+un documento que se va a publicar. Este chunk las regenera con `ggplot2`
+directamente desde los objetos de resultados ya calculados
+(`resultados_todos`, `resultados_donut`), y las guarda con `ggsave()` a
+buena resolución, sobrescribiendo los archivos en `figuras/` con las
+versiones reproducibles. Requiere haber corrido el Paso 10 y el Paso 11
+completos antes (donde se crean esos objetos).
+
+```{r fig.width=9, fig.height=4}
+dir.create("figuras", showWarnings = FALSE)
+
+# --- Figura 2 del informe: resumen ITT, Opción A vs B, ambos outcomes --------
+fig2_datos <- resultados_todos %>%
+  filter(muestra == "muestra completa", tipo == "ITT") %>%
+  mutate(
+    caso = paste0("Opción ", opcion, "\n", anio),
+    significativo = p < 0.05
+  )
+
+fig2 <- ggplot(fig2_datos, aes(x = caso, y = estimate, color = significativo)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_pointrange(aes(ymin = ci_low, ymax = ci_high), size = 0.8, linewidth = 1) +
+  facet_wrap(~outcome, scales = "free_y") +
+  scale_color_manual(values = c(`TRUE` = "#c0392b", `FALSE` = "#bbbbbb"), guide = "none") +
+  labs(title = "Efectos ITT principales: Opción A (efecto directo) vs. Opción B (derrame intrahogar)",
+       x = NULL, y = "Efecto ITT (IC 95% robusto)") +
+  theme_minimal(base_size = 11) +
+  theme(strip.text = element_text(face = "bold"))
+
+ggsave("figuras/fig3_resumen_principal.png", fig2, width = 18, height = 8, units = "cm" , dpi = 300)
+fig2
+```
+
+```{r fig.width=7.5, fig.height=3.6}
+# --- Figura 3 del informe: RD-DiD, horas trabajadas, percentil 60-90 --------
+fig3_datos <- resultados_todos %>%
+  filter(muestra == "p60-90", opcion == "A", outcome == "Horas", tipo == "ITT") %>%
+  mutate(
+    etiqueta_anio = ifelse(anio == "2022", "2022\n(con PGU)", "2017\n(sin PGU en este tramo\nde ingreso)"),
+    significativo = p < 0.05
+  )
+
+fig3 <- ggplot(fig3_datos, aes(x = estimate, y = etiqueta_anio, color = significativo)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_pointrange(aes(xmin = ci_low, xmax = ci_high), size = 1, linewidth = 1.2) +
+  geom_text(aes(label = sprintf("%+.1fh", estimate)), vjust = -1.5, fontface = "bold", show.legend = FALSE) +
+  scale_color_manual(values = c(`TRUE` = "#c0392b", `FALSE` = "#999999"), guide = "none") +
+  labs(title = "La reducción de horas solo aparece en el año en que la reforma\nalcanzó a este tramo de ingreso (percentil 60-90)",
+       x = "Efecto sobre horas trabajadas semanales (ITT, IC 95%)", y = NULL) +
+  theme_minimal(base_size = 11)
+
+ggsave("figuras/fig1_rd_did_horas.png", fig3, width = 7.5, height = 3.6, dpi = 1000)
+fig3
+```
+
+```{r fig.width=8, fig.height=4.5}
+# --- Figura 4 del informe: sensibilidad al donut, 3 casos relevantes --------
+fig4_datos <- resultados_donut %>%
+  filter(opcion == "A", tipo == "LATE", donut %in% c(0, 1)) %>%
+  filter((outcome == "Ocupado" & anio %in% c("2022", "2017")) | (outcome == "Horas" & anio == "2022")) %>%
+  mutate(
+    caso = paste0(outcome, " ", anio, "\n(Opción A)"),
+    donut_label = ifelse(donut == 0, "Sin donut (base)", "Con donut (radio 1 año)"),
+    significativo = p < 0.05
+  )
+
+fig4 <- ggplot(fig4_datos, aes(x = estimate, y = caso, color = significativo, shape = donut_label)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "grey50") +
+  geom_pointrange(aes(xmin = ci_low, xmax = ci_high),
+                   position = position_dodge(width = 0.4), size = 0.9, linewidth = 1) +
+  scale_color_manual(values = c(`TRUE` = "#c0392b", `FALSE` = "#999999"), guide = "none") +
+  scale_shape_manual(values = c("Sin donut (base)" = 16, "Con donut (radio 1 año)" = 15), name = NULL) +
+  labs(title = "Sensibilidad al donut RD: 
+ solo el efecto en ocupación 2022 sobrevive de forma inequívoca",
+       x = "LATE (IC 95% robusto) -- pp u horas semanales, según caso", y = NULL) +
+  theme_minimal(base_size = 11) +
+  theme(legend.position = "bottom")
+
+ggsave("figuras/fig4_donut_sensibilidad.png", fig4, width = 10, height = 7.5, dpi = 1000)
+fig4
+```
+
+
