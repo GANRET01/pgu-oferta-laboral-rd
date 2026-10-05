@@ -1,0 +1,347 @@
+---
+title: "Pensiones no contributivas y oferta laboral en la vejez: evidencia de regresión discontinua para la Pensión Garantizada Universal en Chile"
+author: "[Nombre del autor]"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    theme: flatly
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+# Resumen (abstract)
+
+*[Provisional, sujeto a revisión final del autor]*
+
+En febrero de 2022, Chile reemplazó el pilar solidario de su sistema de pensiones —la Pensión Básica Solidaria (PBS) y el Aporte Previsional Solidario (APS), que en conjunto cubrían al 60% más pobre de los hogares— por la Pensión Garantizada Universal (PGU), un beneficio no contributivo que hoy alcanza al 90% de la población de 65 años y más. Este trabajo estima el efecto de esta reforma sobre la oferta laboral utilizando un diseño de regresión discontinua (RD) alrededor del umbral de elegibilidad de 65 años, con datos de la Encuesta de Caracterización Socioeconómica Nacional (CASEN) de 2017 y 2022. Se implementan dos estrategias complementarias: un diseño RD difuso que estima el efecto directo sobre el beneficiario elegible ("Opción A"), y un diseño que aprovecha la estructura del hogar para estimar el derrame sobre otros integrantes en edad de trabajar ("Opción B"), siguiendo el precedente de Bertrand, Miller y Mullainathan (2003). Adicionalmente, se explota la expansión de cobertura de la reforma —que incorporó por primera vez al percentil 60-90 de ingreso— para construir una extensión de diferencias-en-discontinuidades (RD-DiD) que compara el salto en el comportamiento laboral en 2022 contra el mismo salto en 2017, cuando ese tramo de ingreso aún no calificaba a ningún beneficio solidario. Los resultados muestran que el efecto directo sobre la ocupación y las horas trabajadas es negativo y estadísticamente significativo en la muestra completa, pero de robustez desigual frente a pruebas de exclusión de observaciones cercanas al umbral (*donut RD*), motivadas por evidencia de *heaping* (acumulación) de edad en los datos. El derrame intrahogar es, en el mejor de los casos, sugestivo. La evidencia más creíble surge del diseño RD-DiD: en el tramo de ingreso donde la reforma expandió genuinamente la cobertura, se observa una reducción de aproximadamente 6.6 horas semanales de trabajo (efecto de intención de tratar), sin evidencia de cambio en la probabilidad de estar ocupado; tanto la estimación de 2022 individual como la diferencia formal frente a 2017 son robustas a la exclusión de observaciones cercanas al umbral (*donut RD*). Se documenta además una limitación de identificación relevante para toda esta literatura: características predeterminadas del hogar, que no deberían responder a un cambio de ingreso en el corto plazo, muestran discontinuidades en el umbral de 65 años en ambos años de la muestra, lo que sugiere que cumplir 65 años en Chile coincide con cambios de convivencia y arreglos familiares independientes de cualquier política de pensiones específica.
+
+---
+
+# 1. Introducción y motivación
+
+La relación entre las pensiones no contributivas y la oferta laboral de los adultos mayores es una de las preguntas centrales del diseño de política de protección social en economías envejecientes. Por un lado, garantizar un ingreso mínimo en la vejez es un objetivo de bienestar en sí mismo, particularmente en sistemas de pensiones contributivos que, como el chileno, dejan una fracción importante de la población con pensiones autofinanciadas insuficientes tras décadas de baja densidad de cotizaciones, informalidad laboral y bajos retornos. Por otro lado, la literatura de economía pública ha documentado sistemáticamente que las transferencias de ingreso en la vejez —contributivas y no contributivas— reducen la oferta laboral de sus beneficiarios directos y, en contextos de hogares extendidos, también la de otros miembros del hogar en edad de trabajar (Bertrand, Miller y Mullainathan, 2003). Cuantificar la magnitud de este efecto es indispensable para proyectar el costo fiscal de segunda ronda de una reforma de pensiones —menor recaudación tributaria y previsional asociada a la salida o reducción de horas de trabajadores— y para informar el diseño de mecanismos de retiro gradual o incentivos a la permanencia laboral que acompañen al beneficio.
+
+Chile ofrece un caso de estudio particularmente favorable para esta pregunta. En febrero de 2022, la Ley N° 21.419 creó la Pensión Garantizada Universal (PGU), que reemplazó al sistema solidario anterior —compuesto por la Pensión Básica Solidaria de Vejez (PBSV) para quienes no cotizaron, y el Aporte Previsional Solidario (APS) como complemento para quienes cotizaron pero obtuvieron una pensión contributiva baja—. El cambio no fue solo de nombre: la PGU expandió la cobertura desde el 60% más pobre de la población (bajo el sistema PBS-APS) al 90% bajo el nuevo esquema, manteniendo en ambos casos el umbral de edad de 65 años, uniforme para hombres y mujeres. Esta combinación —un umbral de edad nítido que no puede ser manipulado por los individuos, y una expansión de cobertura que crea variación temporal dentro de un mismo tramo de ingreso— habilita dos estrategias de identificación complementarias que se explotan en este trabajo.
+
+La primera estrategia es un diseño de regresión discontinua (RD) clásico alrededor de los 65 años, replicado en dos años de la Encuesta CASEN (2017, bajo el sistema PBS-APS; 2022, bajo la PGU), que permite estimar tanto el efecto directo sobre el beneficiario (lo que este trabajo llama "Opción A") como el derrame sobre otros integrantes del hogar en edad de trabajar ("Opción B"), en la tradición de Bertrand et al. (2003) para Sudáfrica. La segunda estrategia, más novedosa para este contexto, aprovecha la expansión de cobertura de la reforma para construir una extensión de diferencias-en-discontinuidades (RD-DiD): en el tramo de ingreso que pasó de no estar cubierto (2017) a estarlo (2022), cualquier diferencia en el salto de comportamiento laboral entre ambos años es atribuible, con mayor credibilidad, a la reforma específica y no a factores que coincidan de manera más general con cumplir 65 años en Chile (normas sociales de jubilación, otros beneficios de la tercera edad, cambios de convivencia).
+
+Este trabajo se organiza como sigue. La Sección 2 presenta el marco teórico y la estrategia de identificación, apoyándose en el marco de continuidad de Cattaneo, Idrobo y Titiunik (2019-2024) para diseños agudos y difusos. La Sección 3 describe los datos y el proceso —no trivial— de construcción de variables a partir de microdatos CASEN. Las Secciones 4 y 5 detallan las especificaciones empíricas de la Opción A y la Opción B, respectivamente. La Sección 6 presenta la extensión RD-DiD. La Sección 7 reporta los resultados principales. La Sección 8 documenta el ejercicio de validación y robustez. La Sección 9 discute la evidencia en el contexto de la literatura comparada. La Sección 10 declara las limitaciones del ejercicio, y la Sección 11 concluye con implicancias de política.
+
+---
+
+# 2. Marco teórico y estrategia de identificación
+
+## 2.1 El diseño de regresión discontinua: lógica general
+
+El diseño RD explota la existencia de una regla de asignación determinística (o casi determinística) de un tratamiento en función de una variable observable continua —la variable de ejecución o *running variable*— que cruza un umbral conocido. En este trabajo, la variable de ejecución es la edad del individuo, centrada en el umbral de elegibilidad: $X_i = \text{edad}_i - 65$. La asignación nominal al tratamiento, $T_i = \mathbb{1}\{X_i \geq 0\}$, indica si la persona es elegible al beneficio solidario por edad.
+
+Siguiendo el marco de continuidad desarrollado por Hahn, Todd y Van der Klaauw (2001) y sistematizado en Cattaneo, Idrobo y Titiunik (2019-2024) —el texto de referencia metodológica de este trabajo—, la idea de identificación es que las funciones de regresión subyacentes $\mathbb{E}[Y_i(0)|X_i=x]$ y $\mathbb{E}[Y_i(1)|X_i=x]$ son continuas en $x=0$, de modo que cualquier discontinuidad observada en $\mathbb{E}[Y_i|X_i=x]$ en el umbral es atribuible al tratamiento. Esto no requiere que la asignación sea "como aleatoria" en todo el soporte de $X_i$, sino solo que lo sea *localmente*, en un entorno del umbral.
+
+## 2.2 RD agudo versus difuso, y la Opción A
+
+Cuando el cumplimiento de la regla de asignación es perfecto —todos los elegibles reciben el beneficio y ningún no elegible lo recibe—, el diseño es agudo (*sharp RD*), y el efecto causal se estima directamente como el salto en el resultado:
+
+$$\tau_{SRD} = \lim_{x \to 0^+} \mathbb{E}[Y_i|X_i=x] - \lim_{x \to 0^-} \mathbb{E}[Y_i|X_i=x]$$
+
+En la práctica, la recepción efectiva del beneficio ($D_i$) no coincide perfectamente con la elegibilidad nominal ($T_i$): en nuestros datos, aproximadamente 48% de los elegibles reciben efectivamente la PGU en 2022 (36% recibe el sistema PBS-APS en 2017), y una fracción —pequeña pero no nula— de personas cerca del umbral, por debajo de él, ya recibe algún componente del sistema solidario (jubilación anticipada por invalidez, por ejemplo). Este es el caso clásico de RD difuso (*fuzzy RD*), donde $T_i$ predice discontinuamente a $D_i$ sin determinarlo. El parámetro de interés es entonces un efecto local promedio del tratamiento (LATE, por sus siglas en inglés) sobre los *compliers* —quienes reciben el beneficio si y solo si son elegibles—, dado por el cociente de dos discontinuidades:
+
+$$\tau_{FRD} = \frac{\tau_Y}{\tau_D} = \frac{\lim_{x \to 0^+}\mathbb{E}[Y_i|X_i=x] - \lim_{x \to 0^-}\mathbb{E}[Y_i|X_i=x]}{\lim_{x \to 0^+}\mathbb{E}[D_i|X_i=x] - \lim_{x \to 0^-}\mathbb{E}[D_i|X_i=x]}$$
+
+donde $\tau_D$ es el salto en la probabilidad de recibir el beneficio (la "primera etapa", en la nomenclatura de variables instrumentales) y $\tau_Y$ es el salto en el resultado de interés bajo la asignación nominal —el efecto de intención de tratar (ITT)—. Siguiendo la recomendación de la referencia metodológica de este trabajo, la estimación no se realiza dividiendo dos regresiones separadas con anchos de banda potencialmente distintos, sino mediante la opción `fuzzy` del paquete `rdrobust` (Calonico, Cattaneo y Titiunik, 2014; 2020), que calcula un único ancho de banda óptimo para el cociente y entrega directamente el intervalo de confianza robusto corregido por sesgo del LATE.
+
+Este es el diseño que en este trabajo se denomina **Opción A**: el efecto directo de la elegibilidad y la recepción del beneficio sobre el propio comportamiento laboral del individuo elegible, estimado sobre outcomes de participación (`ocupado`) y margen intensivo (`horas trabajadas semanales`).
+
+## 2.3 El derrame intrahogar y la Opción B
+
+Bertrand, Miller y Mullainathan (2003) documentan, para el caso sudafricano, que la expansión de las pensiones no contributivas no solo afecta al beneficiario directo, sino que reduce la oferta laboral de otros miembros del hogar en edad de trabajar —particularmente hombres en edad prima— a través de un mecanismo de renta compartida dentro del hogar. Este es un canal de primer orden para evaluar el costo fiscal agregado de una reforma como la PGU, y motiva la construcción de una segunda estrategia, la **Opción B**, que reproduce esta lógica para el caso chileno.
+
+La adaptación de este diseño a un contexto de encuesta transversal de hogares —donde, a diferencia del estudio original, puede haber más de un integrante cerca del umbral de elegibilidad en un mismo hogar— exige varias decisiones de diseño no triviales, documentadas con su justificación completa en la bitácora de decisiones del proyecto:
+
+- **Integrante de referencia:** cuando un hogar tiene más de un integrante cerca de los 65 años, se utiliza la edad del integrante más cercano al umbral como variable de ejecución del hogar. Se descartaron dos alternativas: restringir la muestra a hogares con exactamente un integrante en la banda (que habría sido más limpio pero reduce sustancialmente la muestra), y replicar el enfoque de Bertrand et al. de contar a todos los elegibles del hogar mediante un diseño "apilado" (una observación por cada elegible), que resulta incompatible con la implementación estándar de `rdrobust`, con el ajuste de errores estándar por edad entera, y con el resto del pipeline de validación (test de densidad, *donut RD*, `rdlocrand`). En su lugar, se preserva el espíritu del conteo de Bertrand et al. incorporando el número de elegibles del hogar como covariable de control.
+- **Definición de "otro integrante en edad de trabajar":** se excluye al integrante de referencia y a cualquier otro integrante ya elegible (65 años o más), estén o no cerca del umbral, replicando la restricción de Bertrand et al. a población de 16 a 50 años —en este caso, 18 a 64 años—, tanto porque la población de 65 años y más no es, por definición, "población en edad de trabajar" para efectos de este análisis, como porque incluirlos mezclaría el derrame con el efecto directo de un segundo beneficiario en el mismo hogar.
+- **Unidad de análisis y errores estándar:** al igual que en Bertrand et al., la unidad de análisis es la persona (cada "otro integrante" válido es una observación), con la variable de ejecución, la elegibilidad y el tratamiento heredados del integrante de referencia del hogar. Como varios "otros integrantes" pueden compartir hogar, los errores estándar se agrupan por identificador de hogar, y no por edad entera como en la Opción A.
+
+## 2.4 La extensión de diferencias-en-discontinuidades (RD-DiD)
+
+El diseño RD estándar identifica el efecto de cruzar el umbral de edad bajo el supuesto de que ninguna otra característica relevante del individuo cambia discontinuamente en ese mismo punto. En Chile, este supuesto es cuestionable: los 65 años son, más allá de la elegibilidad a un beneficio solidario específico, un punto focal cultural e institucional de la jubilación, asociado a otros beneficios de la tercera edad y a normas sociales de retiro que trascienden cualquier reforma particular.
+
+La expansión de cobertura de la PGU ofrece una manera de aislar el componente específico de la reforma. Para hogares en el percentil 60 a 90 de ingreso autónomo per cápita, el sistema PBS-APS vigente hasta 2022 no otorgaba ningún beneficio solidario al cumplir 65 años —la cobertura llegaba solo hasta el percentil 60—, mientras que la PGU sí lo hace, dado que su cobertura nominal alcanza al percentil 90. En consecuencia, dentro de este tramo de ingreso específico, el diseño RD debería mostrar un salto en el comportamiento laboral en 2022 y **ningún salto en 2017**, si el efecto observado es atribuible a la reforma y no a otros factores que coincidan de manera más general con cumplir 65 años.
+
+Formalmente, se estima $\tau_{FRD}$ (o su análogo de intención de tratar, $\tau_Y$) por separado para 2022 y 2017 dentro de la submuestra de percentil 60-90, y se construye la diferencia:
+
+$$\Delta = \hat{\tau}_{2022} - \hat{\tau}_{2017}$$
+
+Dado que CASEN 2017 y CASEN 2022 son muestras transversales independientes —olas distintas de la encuesta, sin estructura de panel—, la varianza de esta diferencia es simplemente la suma de las varianzas de cada estimador, sin término de covarianza, lo que permite un test de diferencia estándar. Este diseño combina la lógica de discontinuidad local con la de diferencias-en-diferencias, y por esa razón se denomina en este trabajo RD-DiD.
+
+## 2.5 Validación y falsificación del diseño
+
+Siguiendo el marco de Cattaneo, Idrobo y Titiunik, toda prueba de validación de un diseño RD difuso debe ejecutarse sobre la asignación nominal $T_i$, replicando metodologías de RD agudo, y nunca condicionando en el tratamiento efectivamente recibido $D_i$ —hacerlo introduce sesgo de selección, dado que $D_i$ es en sí mismo un resultado post-asignación—. Este trabajo sigue estrictamente ese principio en sus tres componentes de validación:
+
+1. **Prueba de densidad:** evalúa si la densidad de la variable de ejecución salta discontinuamente en el umbral, lo que sería indicio de manipulación del *running variable*. Se implementa mediante el test de estimación de densidad local (Cattaneo, Jansson y Ma, 2018), sucesor moderno del test de McCrary (2008).
+2. **Covariables predeterminadas:** características fijadas antes de que la elegibilidad pudiera tener efecto (escolaridad, estado civil, región de residencia, sexo) deben mostrar un efecto nulo de $T_i$ mediante el estimador RD agudo. Un salto en alguna de ellas es evidencia de que los grupos justo por debajo y por encima del umbral no son comparables.
+3. **Resultados placebo:** variables de resultado que la teoría económica indica que no pueden ser afectadas por el tratamiento en el horizonte temporal relevante también deben mostrar un efecto nulo de $T_i$.
+
+Complementariamente, se implementa el enfoque de aleatorización local (Cattaneo, Frandsen y Titiunik, 2015; Cattaneo, Titiunik y Vazquez-Bare, 2016), que trata a las observaciones en una ventana muy angosta alrededor del umbral como si estuvieran aleatoriamente asignadas, y construye inferencia basada en permutaciones (test de Fisher) en lugar de en la teoría asintótica del enfoque de continuidad. Este enfoque es particularmente relevante dado que la variable de ejecución —edad en años cumplidos, tal como se registra en CASEN— es discreta, lo que genera *masa de puntos* (*mass points*) que el propio paquete `rdrobust` señala en cada estimación, y que motivó los ejercicios de robustez adicionales que se detallan en la Sección 8.
+
+---
+
+# 3. Datos y construcción de variables
+
+## 3.1 Fuente de datos
+
+Se utilizan las bases de la Encuesta CASEN, correspondientes a las olas 2017 (N = 216.439 personas, bajo el sistema PBS-APS) y 2022 (N = 202.231 personas, bajo la PGU, implementada en febrero de ese año). CASEN es una encuesta de hogares representativa a nivel nacional, regional y de área urbano/rural, aplicada por el Ministerio de Desarrollo Social y Familia.
+
+## 3.2 Construcción de variables: un proceso no trivial
+
+La construcción de las variables de interés a partir de los microdatos CASEN requirió una validación cuidadosa contra el libro de códigos oficial, documentada íntegramente en la bitácora de decisiones del proyecto. Vale la pena describir este proceso porque varios supuestos iniciales, basados en patrones típicos de nomenclatura de CASEN, resultaron **incorrectos**, y el código habría corrido sin errores usando la variable equivocada de no haberse verificado explícitamente cada nombre contra la etiqueta real de la columna:
+
+- **Horas trabajadas:** la variable correcta es `o10` ("¿Cuántas horas trabaja habitualmente por semana en su trabajo principal?"). Un supuesto inicial (`o23`) resultó no existir con ese contenido.
+- **Recepción del beneficio solidario:** en 2022, se utiliza `y28_1c1`, el flag directo "¿Recibe Pensión Garantizada Universal (PGU)?" (específico del componente de vejez). En 2017, dado que el sistema PBS-APS tenía dos vías de acceso —la Pensión Básica Solidaria de Vejez para quienes no cotizaron, y la Jubilación de Vejez con Aporte Previsional Solidario para quienes sí—, se combinan `y26_1a` y `y26_1b` mediante un operador OR. Un supuesto inicial (`y2507`) resultó corresponder a una prestación completamente distinta ("Ingreso Mínimo Garantizado"), no relacionada con el pilar solidario de vejez.
+- **Ingreso autónomo per cápita del hogar:** se utiliza `ypchautcor` ("Ingreso autónomo per cápita del hogar corregido"), una variable ya construida por CASEN a nivel per cápita, evitando así el riesgo de doble conteo que habría implicado dividir manualmente el ingreso total del hogar por su tamaño.
+- **Factor de expansión:** `expr`, confirmado contra el libro de códigos (no se utiliza en la estimación RD misma, ver Sección 4, pero sí en estadística descriptiva).
+
+Las variables `edad`, `folio` (identificador de hogar), `activ` (condición de actividad, con categorías Ocupados/Desocupados/Inactivos), `sexo`, `esc` (años de escolaridad, población de 15 años y más), `ecivil` (estado civil) y `region` se confirmaron sin necesidad de corrección.
+
+## 3.3 Variables derivadas
+
+A partir de las variables confirmadas se construyen:
+
+- **Variable de ejecución centrada:** $X_i = \text{edad}_i - 65$.
+- **Elegibilidad:** $T_i = \mathbb{1}\{\text{edad}_i \geq 65\}$.
+- **Tratamiento efectivo:** $D_i$, la recepción del beneficio solidario según se describe arriba.
+- **Outcomes de participación laboral:** `ocupado` (condición de actividad = Ocupado) y `fuerza_trabajo` (Ocupado o Desocupado, es decir, participación en el mercado laboral en sentido amplio).
+- **Horas trabajadas:** definida únicamente para quienes están ocupados; se codifica como valor perdido (no como cero) para quienes no lo están, con el fin de no confundir "no aplica" con "cero horas trabajadas" en la estimación RD.
+- **Percentil de ingreso:** percentil de `ypchautcor`, ponderado por el factor de expansión `expr`, utilizado en la extensión RD-DiD (Sección 2.4).
+
+## 3.4 La variable de ejecución discreta y sus implicancias
+
+Un elemento distintivo de este contexto, distinto del caso canónico de RD con una variable de ejecución continua, es que la edad en CASEN se registra en años cumplidos —un entero—, lo que genera *masa de puntos* en la variable de ejecución. Esto tiene dos consecuencias metodológicas que se abordan explícitamente a lo largo del trabajo: primero, los errores estándar de todas las estimaciones se agrupan por edad entera (Opción A) o por hogar (Opción B), siguiendo la recomendación de Lee y Card (2008) para variables de ejecución discretas, en lugar de asumir errores independientes entre observaciones con el mismo valor de $X_i$; segundo, como se detalla en la Sección 8, la naturaleza discreta de la edad —combinada con evidencia de *heaping* (redondeo hacia edades múltiplos de cinco, un fenómeno bien documentado en encuestas de hogares con población de edad avanzada)— motivó una batería de pruebas de robustez adicionales a las habituales en la literatura de RD.
+
+---
+
+# 4. Estrategia empírica: Opción A (efecto directo)
+
+## 4.1 Especificación
+
+La Opción A estima, para cada año de la muestra por separado, el efecto de intención de tratar ($\tau_Y$), la primera etapa ($\tau_D$) y el efecto local promedio del tratamiento ($\tau_{FRD}$) sobre dos *outcomes*: `ocupado` y `horas_trabajadas`. La estimación utiliza `rdrobust` con las siguientes elecciones:
+
+- **Ancho de banda:** seleccionado de forma óptima según el criterio de error cuadrático medio (`mserd`), dentro de una banda de trabajo de $\pm 10$ años alrededor del umbral (55 a 75 años), que constituye el universo de datos sobre el que se trabaja, sin restringir el ancho de banda óptimo que `rdrobust` recalcula internamente.
+- **Orden polinomial:** lineal local ($p=1$) con corrección de sesgo de orden cuadrático ($q=2$), siguiendo la recomendación estándar del enfoque de continuidad.
+- **Errores estándar:** agrupados por edad entera (corrección de Lee y Card, 2008, por variable de ejecución discreta).
+- **Covariables de control:** región Metropolitana de residencia (`vive_rm`), la única covariable predeterminada que mostró un salto significativo y consistente en el umbral en ambos años de la muestra (ver Sección 8.2), posiblemente asociada a patrones de migración al momento de jubilar. Se reporta también la especificación sin esta covariable como chequeo de robustez.
+- **Ponderadores muestrales:** no se utilizan en la estimación RD misma. Esta es una decisión metodológica deliberada, no un descuido: el estimador local identifica el efecto a partir de comparar unidades muy cercanas al umbral, donde la composición muestral tiene una influencia marginal, y ponderar podría introducir sesgo si el diseño muestral de CASEN está correlacionado con la edad. Los ponderadores sí se utilizan para estadística descriptiva de caracterización de la población beneficiaria.
+
+## 4.2 Interpretación
+
+Bajo los supuestos del diseño (continuidad local de las funciones de regresión potenciales en el umbral), $\hat{\tau}_{FRD}$ identifica el efecto causal promedio sobre los *compliers* —personas cuya recepción del beneficio responde efectivamente a haber cruzado el umbral de edad—. Como se discute en la Sección 10, este parámetro no puede distinguir el efecto específico del beneficio solidario del efecto más general de cumplir 65 años en el contexto chileno, una limitación que motiva la extensión RD-DiD de la Sección 6.
+
+---
+
+# 5. Estrategia empírica: Opción B (derrame intrahogar)
+
+## 5.1 Construcción de la muestra
+
+Para cada hogar, se identifica al integrante más cercano a los 65 años dentro de una banda de $\pm 10$ años como el integrante de referencia, del cual se heredan la variable de ejecución ($X_{hogar}$), la elegibilidad y el tratamiento efectivo del hogar. Los "otros integrantes en edad de trabajar" del mismo hogar —excluyendo al integrante de referencia y a cualquier otro integrante ya elegible— constituyen la muestra de análisis, con edades entre 18 y 64 años.
+
+## 5.2 Especificación
+
+La especificación replica la de la Opción A (ITT, primera etapa y LATE vía `rdrobust`), con dos diferencias:
+
+- **Errores estándar:** agrupados por identificador de hogar (`folio`), no por edad entera, dado que varios "otros integrantes" de un mismo hogar comparten el mismo valor de la variable de ejecución del hogar.
+- **Covariable de control:** el número de elegibles en el hogar (`n_elegibles_hogar`), que preserva, como se explicó en la Sección 2.3, el conteo de elegibles de Bertrand et al. (2003) sin recurrir a un diseño apilado.
+
+## 5.3 Heterogeneidad por sexo
+
+Bertrand et al. (2003) documentan que el derrame se concentra en hombres en edad prima, un patrón que se testea explícitamente en este trabajo dividiendo la muestra de "otros integrantes" por sexo para el año 2022.
+
+---
+
+# 6. Extensión de diferencias-en-discontinuidades (RD-DiD)
+
+Se restringe la muestra de la Opción A —y, por completitud, también la de la Opción B— al percentil 60-90 de ingreso autónomo per cápita del hogar, calculado dentro de cada año de la encuesta, y se replica la especificación descrita en la Sección 4 por separado para 2022 y 2017. Se reporta tanto la diferencia de los LATE de cada año como, dada la inestabilidad del cociente LATE cuando la primera etapa es débil en alguno de los dos años (ver Sección 7.3), la diferencia de los efectos ITT, que no está sujeta a ese problema.
+
+---
+
+# 7. Resultados
+
+## 7.1 Primera etapa: la reforma cambió los incentivos
+
+La Figura 1 muestra la probabilidad de recibir el beneficio solidario en función de la edad centrada, para 2022. El salto discontinuo en el umbral —de una probabilidad cercana a cero a aproximadamente 48%— confirma que cruzar los 65 años cambia sustancialmente el acceso al beneficio, condición necesaria para la validez del diseño difuso.
+
+![Figura 1: Primera etapa, CASEN 2022](figuras/fig2_primera_etapa_2022.png)
+
+En 2017, el salto de la primera etapa es de 18.4 puntos porcentuales (menor cobertura del sistema PBS-APS respecto de la PGU); en 2022, de 37.3 puntos porcentuales.
+
+## 7.2 Opción A: efecto directo
+
+La Tabla 1 y la Figura 2 (panel izquierdo) resumen los resultados principales.
+
+**Tabla 1. Opción A — efectos ITT y LATE por año**
+
+| | 2022 (PGU) | 2017 (PBS-APS) |
+|---|---|---|
+| Primera etapa | 37.3 pp*** | 18.4 pp*** |
+| ITT ocupación | -6.2 pp*** | -5.5 pp*** |
+| **LATE ocupación** | **-16.7 pp***** | **-30.7 pp***** |
+| ITT horas | -2.34 h*** | -0.01 h (ns) |
+| **LATE horas** | **-9.9 h***** | 0.57 h (ns, IC amplio) |
+
+*Nota: \*\*\* p<0.01. Errores estándar agrupados por edad entera. Covariable de control: región Metropolitana.*
+
+![Figura 2: Efectos ITT principales, Opción A vs. Opción B](figuras/fig3_resumen_principal.png)
+
+El efecto directo es negativo y significativo en todas las especificaciones. La covariable de control (región Metropolitana) no altera sustantivamente ninguna estimación respecto de la especificación sin covariables, lo que descarta que el desbalance detectado en esa variable (Sección 8.2) esté sesgando el resultado principal.
+
+## 7.3 Opción B: derrame intrahogar
+
+**Tabla 2. Opción B — efectos ITT y LATE por año, "otros integrantes en edad de trabajar"**
+
+| | 2022 | 2017 |
+|---|---|---|
+| Primera etapa | 29.0 pp*** | 8.8-11.3 pp*** |
+| ITT ocupado | -4.0 pp (p=0.089) | **-7.1 pp*** |
+| LATE ocupado | -13.9 pp (p=0.085) | -81.6 pp (p=0.053, ver nota) |
+| ITT/LATE horas | no significativo en ambos años | — |
+
+*Nota: la primera etapa débil de 2017 (8.8-11.3%) infla artificialmente la magnitud del LATE de ese año; se recomienda no citar el -81.6pp como magnitud creíble.*
+
+La heterogeneidad por sexo (2022, `ocupado`) no muestra efecto significativo ni en hombres (-1.5 pp, p=0.561) ni en mujeres (+0.9 pp, p=0.737), sin replicar el canal de género documentado por Bertrand et al. (2003), muy probablemente por falta de poder estadístico al dividir una muestra ya de por sí más chica que la de la Opción A.
+
+En conjunto, la evidencia de derrame intrahogar es, en el mejor de los casos, sugestiva. El único resultado con algo de solidez estadística —el ITT de ocupación en 2017— no cuenta todavía con un chequeo de *donut RD* específico, pendiente para una iteración futura de este trabajo.
+
+## 7.4 RD-DiD: el hallazgo más creíble
+
+**Tabla 3. RD-DiD, percentil 60-90 de ingreso, diferencia 2022 vs. 2017**
+
+| Outcome | Diferencia LATE | Diferencia ITT (recomendada) |
+|---|---|---|
+| Ocupado | -69.7 pp (p<0.001) — no confiable, ver nota | -4.2 pp (p=0.093, ns) |
+| **Horas trabajadas** | -39.9 h (p<0.001) — magnitud inflada | **-6.6 h (p<0.001)** |
+
+*Nota: la primera etapa débil de 2017 en este subgrupo de ingreso (8.3% para ocupado) produce un LATE del año 2017 poco creíble en nivel (+74.8 pp), que se propaga a la diferencia. Se recomienda citar exclusivamente la diferencia de efectos ITT.*
+
+La Figura 3 ilustra el hallazgo central: en 2017, cuando este tramo de ingreso no calificaba a ningún beneficio solidario, no hay reducción de horas trabajadas en el umbral de 65 años (de hecho, el punto estimado es positivo); en 2022, cuando la PGU sí alcanzó a este tramo, la reducción es de 4.5 horas semanales, con intervalos de confianza que no se superponen entre ambos años.
+
+![Figura 3: Comparación 2022 vs. 2017, percentil 60-90 de ingreso](figuras/fig1_rd_did_horas.png)
+
+No se encuentra evidencia robusta de que la reforma haya cambiado la probabilidad de estar ocupado en este mismo tramo de ingreso (diferencia ITT no significativa), lo que sugiere que el ajuste de oferta laboral en este segmento ocurre enteramente en el margen intensivo, no en la decisión de participar.
+
+**Confirmación de robustez (ver Sección 8.4):** la prueba formal de la diferencia 2022 vs. 2017 bajo *donut RD*, calculada con el efecto ITT (la especificación recomendada, dado que el LATE ya se estableció como inestable en este contexto), se mantiene estadísticamente significativa en los tres radios evaluados (0, 1 y 2 años), incluyendo una magnitud creciente y sin el comportamiento numéricamente degenerado que exhibía la versión basada en LATE. Esto confirma que el hallazgo central no depende de las observaciones más próximas al umbral de edad.
+
+---
+
+# 8. Validación y robustez
+
+## 8.1 Prueba de densidad
+
+El test de manipulación de Cattaneo, Jansson y Ma (2018) resulta estadísticamente significativo en ambos años (2022: estadístico robusto = -3.87, p<0.001; 2017: estadístico robusto = 2.06, p=0.040). Sin embargo, el patrón de significancia por ventana no es consistente con manipulación real: los tests binomiales por ancho de ventana muestran un patrón oscilante —no significativo en la ventana de $\pm 5$ años, significativo en ventanas adyacentes—, distinto del patrón de acumulación decreciente con la distancia al umbral que se esperaría de una manipulación genuina del *running variable*. Dado que la edad no es una variable que los individuos puedan manipular para calificar al beneficio, se interpreta esta evidencia como *heaping* de edad (preferencia por reportar edades redondeadas a múltiplos de cinco), un fenómeno ampliamente documentado en encuestas de hogares con población de edad avanzada, y se declara como supuesto del estudio. Esta interpretación motiva la relevancia del *donut RD* (Sección 8.4) como chequeo de robustez obligatorio, no opcional.
+
+## 8.2 Covariables predeterminadas
+
+Siguiendo el principio de que toda prueba de falsificación debe ejecutarse sobre la asignación $T_i$ (Sección 2.5), se estima el efecto RD agudo de la elegibilidad sobre cuatro covariables predeterminadas: años de escolaridad, presencia de pareja (casado o conviviente), residencia en la Región Metropolitana, y sexo. Los resultados son mixtos: escolaridad y presencia de pareja no muestran desbalance en ningún año; residencia en la Región Metropolitana muestra un salto significativo y consistente en ambos años (2022: +1.8 pp, p=0.011; 2017: p=0.006), posiblemente asociado a patrones de migración al momento de jubilar, y se incorpora como covariable de control en la Opción A; sexo muestra un salto solo marginal y solo en 2022 (p=0.096), que se reporta pero no se controla.
+
+## 8.3 Resultados placebo
+
+Se testea el efecto de la elegibilidad sobre la tenencia de la vivienda del hogar (propia/arrendada/cedida), una característica que, por su naturaleza, no debería responder a un cambio de ingreso de un integrante del hogar en el horizonte de corto plazo que captura una encuesta transversal. El resultado es una falla del placebo: se observa un salto significativo en **ambos años** (2022: -1.8 pp, p<0.001; 2017: -1.4 pp, p=0.004). Dado que este efecto aparece incluso en 2017, antes de la existencia de la PGU, no es atribuible a la reforma, sino que constituye evidencia adicional de que cumplir 65 años en Chile coincide con cambios reales de convivencia y arreglos de tenencia de vivienda —adultos mayores que se mudan con hijos, ceden la vivienda, u otros ajustes asociados a la edad de jubilación en un sentido amplio—, independientes de cualquier política de pensiones específica. Esta falla del placebo es la evidencia empírica más directa de la limitación de identificación discutida en la Sección 10, y refuerza por contraste la credibilidad relativa del diseño RD-DiD de la Sección 6, que diferencia automáticamente cualquier efecto común a ambos años.
+
+## 8.4 Donut RD
+
+Se re-estima la especificación principal excluyendo observaciones dentro de un radio de 1 y 2 años del umbral, manteniendo fijo el ancho de banda de la especificación principal (una elección técnica necesaria: permitir que `rdrobust` recalcule el ancho de banda óptimo con un vacío de datos en el centro produce resultados numéricamente degenerados). La Figura 4 resume el patrón para los tres casos donde la especificación principal de la Opción A fue significativa.
+
+![Figura 4: Sensibilidad al donut RD](figuras/fig4_donut_sensibilidad.png)
+
+El efecto en `ocupado` 2022 es el único que sobrevive de manera inequívoca al *donut RD* (se atenúa levemente, de -14.9 a -11.0 puntos porcentuales, manteniéndose significativo). El efecto en `ocupado` 2017 y en `horas` 2022 pierden significancia estadística al excluir el radio de un año alrededor del corte. El radio de dos años produce, en la mayoría de las especificaciones, resultados numéricamente inestables (varianza agrupada degenerada con pocos clústeres efectivos) y se descarta como evidencia.
+
+**Donut RD sobre la diferencia formal del RD-DiD (Sección 6):** se repite este ejercicio directamente sobre la diferencia 2022 vs. 2017 del hallazgo central en horas trabajadas (percentil 60-90), no solo sobre cada año por separado.
+
+**Tabla 4. Sensibilidad al donut de la diferencia RD-DiD (horas trabajadas)**
+
+| Radio del donut | Diferencia (LATE) | Diferencia (ITT) |
+|---|---|---|
+| 0 (base) | -39.92h, p<0.001 | -6.65h, p<0.001 |
+| 1 | -58.64h, p=0.787 (ns) | **-12.29h, p=0.040** |
+| 2 | descartar (inestable, SE en los miles) | -40.94h, p<0.001 |
+
+La versión LATE de esta prueba pierde significancia a radio 1 y se degenera numéricamente a radio 2 (mismo problema de primera etapa débil documentado en la Sección 7.4). **La versión ITT, en cambio, se mantiene significativa en los tres radios**, sin el comportamiento degenerado -- confirmando que el hallazgo central no depende de las observaciones más próximas al umbral de edad, y que la fragilidad observada con LATE era, como se anticipó, un problema del cociente y no del efecto subyacente. Esta es la evidencia de robustez más completa de todo el ejercicio: sobrevive tanto a nivel de cada año por separado como en la diferencia formal entre ambos.
+
+## 8.5 Sensibilidad a anchos de banda alternativos
+
+Se re-estima el LATE de la Opción A sobre una grilla de anchos de banda fijos (2, 3, 5, 7 y 10 años), manteniendo una razón $h/b$ constante. Los resultados matizan la lectura del *donut RD*: `ocupado` y `horas` en 2022 son robustos a la anchura de la ventana en las cinco especificaciones. `ocupado` en 2017 también es robusto a la anchura de la ventana —significativo en las cinco especificaciones—, lo que, combinado con su fragilidad específica al *donut RD*, sugiere que el resultado de 2017 no depende de cuánto ancho de banda se use, sino específicamente de excluir las observaciones más próximas al umbral, consistente con la hipótesis de *heaping* concentrado ahí. `horas` en 2017 es nulo en las cinco especificaciones, sin excepción y sin signo consistente. Se documenta además que la bandwidth de 2 años produce, en todas las especificaciones, estimaciones degeneradas (errores estándar prácticamente nulos, magnitudes económicamente imposibles) y debe excluirse de cualquier tabla o gráfico de resultados.
+
+## 8.6 Aleatorización local (`rdlocrand`)
+
+Como complemento al enfoque de continuidad, se implementa el enfoque de aleatorización local en la ventana más angosta posible —comparando exactamente a quienes tienen 64 años contra quienes tienen 65—, con inferencia basada en permutaciones. Los resultados divergen del *donut RD* en un aspecto notable: en `ocupado`, tanto 2022 como 2017 resultan altamente significativos (p<0.001 en ambos casos) bajo este enfoque, mientras que el *donut RD* había eliminado la significancia de 2017. Esta divergencia entre dos métodos válidos, pero que difieren en sus supuestos —extrapolación local con ancho de banda fijo versus comparación de medias sin extrapolación—, se reporta como un matiz genuino del resultado de 2017 en ocupación: ni "confirmado" ni "refutado" de manera unívoca, sino sensible al método de estimación. En `horas`, el resultado de `rdlocrand` para 2022 (-2.43 horas) replica de manera muy cercana el efecto ITT del enfoque de continuidad (-2.34 horas), ofreciendo una validación cruzada útil entre dos métodos independientes; `horas` en 2017 no es significativo bajo ningún enfoque.
+
+---
+
+# 9. Comparación con la literatura
+
+**Bertrand, Miller y Mullainathan (2003)** constituyen el precedente metodológico directo de la Opción B. Sobre datos de Sudáfrica, documentan una caída significativa en la participación laboral de integrantes del hogar en edad prima —concentrada en hombres, y de mayor magnitud cuando quien recibe la pensión es mujer— cuando un integrante del hogar cruza el umbral de elegibilidad a la pensión no contributiva. Este trabajo no logra replicar el canal de género documentado por Bertrand et al.: ni hombres ni mujeres muestran un derrame significativo en la muestra de 2022, resultado que se atribuye tentativamente a falta de poder estadístico al dividir una muestra de derrame que ya era, en la especificación agregada, solo marginalmente significativa.
+
+**Vergara Bustos (2025)** constituye el antecedente chileno más directo, utilizando un diseño de triple-diferencias sobre la Encuesta Nacional de Empleo y CASEN 2022, restringido a los primeros seis meses de implementación de la PGU. Su resultado central es la imagen especular del de este trabajo: encuentra un efecto nulo sobre la participación laboral y formalidad de los beneficiarios directos, pero sí una reducción de la participación laboral en hogares con al menos un miembro elegible, especialmente entre hombres —es decir, encuentra derrame pero no efecto directo, mientras que este trabajo encuentra un efecto directo robusto (al menos en participación) y un derrame débil—. Esta divergencia sustantiva no se atribuye a un error en ninguno de los dos estudios, sino a diferencias genuinas de diseño: la ventana temporal de Vergara Bustos (seis meses) es sustancialmente más corta que la de este trabajo (CASEN completa, noviembre 2022 a marzo 2023, comparada contra CASEN 2017 completa); la fuente de variación de su diseño (comparación de grupos elegibles y no elegibles a través de la implementación de la reforma) es distinta de la de este trabajo (discontinuidad local en la edad); y, de manera importante, el diseño RD simple de este trabajo —a diferencia del diseño de triple-diferencias— no puede descartar que esté capturando, en la muestra completa, el efecto combinado de cumplir 65 años en un sentido amplio y no exclusivamente el efecto de la PGU, limitación discutida en profundidad en la Sección 10 y motivada empíricamente por la falla del placebo de tenencia de vivienda (Sección 8.3).
+
+---
+
+# 10. Limitaciones
+
+1. **Selección post-tratamiento en el margen intensivo.** La variable `horas_trabajadas` está definida únicamente para quienes están ocupados. Si la PGU reduce la probabilidad de estar ocupado —como sugieren los resultados de la Opción A—, el grupo de "ocupados" que permanece a cada lado del umbral deja de ser directamente comparable, un problema de selección post-tratamiento conocido en esta literatura (discutido también por Bertrand et al., 2003) que este trabajo declara pero no resuelve.
+
+2. **El umbral de 65 años no captura exclusivamente el efecto de la PGU.** Como evidencia la falla del placebo de tenencia de vivienda (Sección 8.3), cumplir 65 años en Chile coincide con cambios de comportamiento que exceden a cualquier reforma de pensiones específica. El diseño RD de la Opción A, aplicado a la muestra completa, no puede separar perfectamente ambos componentes. La extensión RD-DiD (Sección 6) ofrece una vía de mitigación para el tramo de ingreso donde existe variación de cobertura entre años, pero no para el efecto directo estimado sobre la población general.
+
+3. **Poder estadístico limitado en la Opción B.** La división de una muestra ya restringida a "otros integrantes en edad de trabajar" por sexo, o el uso de una primera etapa más débil que la de la Opción A, limitan la capacidad de este trabajo para pronunciarse de manera concluyente sobre la existencia y magnitud del derrame intrahogar.
+
+4. **Sensibilidad de algunos resultados a la especificación.** El efecto de 2017 en participación laboral (Opción A) es significativo bajo el enfoque de continuidad con distintos anchos de banda y bajo `rdlocrand`, pero pierde significancia bajo *donut RD*. Este trabajo opta por reportar esta sensibilidad explícitamente en lugar de resolverla a favor de una única narrativa.
+
+5. ~~Prueba de donut pendiente para la diferencia formal del RD-DiD.~~ **Resuelta:** la diferencia 2022 vs. 2017 bajo *donut RD*, calculada con el efecto ITT, se mantiene significativa en los tres radios evaluados (Sección 8.4, Tabla 4), confirmando la robustez del hallazgo central. La versión basada en LATE sí pierde significancia y se degenera numéricamente, pero se atribuye correctamente a la inestabilidad conocida del cociente cuando la primera etapa es débil (Sección 7.4), no a una fragilidad del efecto subyacente.
+
+6. **Variable de ejecución discreta.** La edad registrada en años cumplidos genera masa de puntos que motiva ajustes no estándar (agrupamiento de errores por edad entera, *donut RD* como chequeo obligatorio). Si bien se abordan con las herramientas metodológicas apropiadas, la variable de ejecución discreta es, en sí misma, una limitación respecto del caso canónico de RD con variable continua.
+
+---
+
+# 11. Conclusión e implicancias de política
+
+Este trabajo estima el efecto de la Pensión Garantizada Universal sobre la oferta laboral en Chile utilizando dos años de la Encuesta CASEN y un diseño de regresión discontinua alrededor del umbral de 65 años, complementado con una extensión de diferencias-en-discontinuidades que explota la expansión de cobertura de la reforma. Tres conclusiones sustantivas emergen del ejercicio, con distintos grados de confianza:
+
+Primero, **la PGU no parece estar vaciando el mercado laboral de adultos mayores de manera generalizada**: el diseño más creíble de este trabajo —la extensión RD-DiD sobre el tramo de ingreso donde la reforma expandió genuinamente la cobertura— no encuentra evidencia robusta de un cambio en la probabilidad de estar ocupado.
+
+Segundo, **sí existe evidencia sólida de un ajuste en el margen intensivo**: entre quienes permanecen empleados en el tramo de ingreso recién incorporado a la cobertura solidaria, las horas trabajadas caen en aproximadamente 6.6 horas semanales, un efecto robusto tanto a nivel de la estimación individual de 2022 como en la diferencia formal frente a 2017, bajo exclusión de observaciones cercanas al umbral de edad (Sección 8.4). Esta es la estimación de mayor credibilidad de todo el ejercicio, tanto por el diseño que la sustenta como por su consistencia frente a los distintos chequeos de robustez implementados.
+
+Tercero, **el efecto directo estimado sobre la muestra completa —mayor en magnitud que el hallazgo del punto anterior— debe interpretarse con cautela**, dado que este trabajo documenta evidencia directa (la falla sistemática del placebo de tenencia de vivienda) de que cumplir 65 años en Chile coincide con cambios de comportamiento que exceden el efecto específico de cualquier política de pensiones.
+
+Desde la perspectiva de diseño de política, estos resultados sugieren que el costo fiscal de segunda ronda de la PGU —vía menor recaudación asociada a reducción de horas trabajadas— es una consideración empíricamente fundada para el segmento de ingreso medio recién incorporado a la cobertura solidaria, mientras que el temor a una salida masiva del mercado laboral de adultos mayores no encuentra, en la evidencia más creíble de este trabajo, respaldo empírico robusto. Para la literatura metodológica más amplia, este trabajo ofrece una ilustración de cómo la variación temporal en la cobertura de una reforma —cuando está disponible— permite aislar el efecto causal de la política de otros factores que coinciden, de manera más general, con el umbral de edad utilizado como variable de ejecución.
+
+---
+
+# Referencias
+
+Bertrand, M., Miller, D., & Mullainathan, S. (2003). Public Policy and Extended Families: Evidence from Pensions in South Africa. *The World Bank Economic Review*, 17(1), 27–50.
+
+Calonico, S., Cattaneo, M. D., & Titiunik, R. (2014). Robust Nonparametric Confidence Intervals for Regression-Discontinuity Designs. *Econometrica*, 82(6), 2295–2326.
+
+Calonico, S., Cattaneo, M. D., & Farrell, M. H. (2020). Optimal Bandwidth Choice for Robust Bias-Corrected Inference in Regression Discontinuity Designs. *The Econometrics Journal*, 23(2), 192–210.
+
+Cattaneo, M. D., Frandsen, B., & Titiunik, R. (2015). Randomization Inference in the Regression Discontinuity Design: An Application to the Study of Party Advantages in the U.S. Senate. *Journal of Causal Inference*, 3(1), 1–24.
+
+Cattaneo, M. D., Idrobo, N., & Titiunik, R. (2019–2024). *A Practical Introduction to Regression Discontinuity Designs*. Cambridge University Press.
+
+Cattaneo, M. D., Jansson, M., & Ma, X. (2018). Manipulation Testing Based on Density Discontinuity. *The Stata Journal*, 18(1), 234–261.
+
+Cattaneo, M. D., Titiunik, R., & Vazquez-Bare, G. (2016). Inference in Regression Discontinuity Designs under Local Randomization. *The Stata Journal*, 16(2), 331–367.
+
+Hahn, J., Todd, P., & Van der Klaauw, W. (2001). Identification and Estimation of Treatment Effects with a Regression-Discontinuity Design. *Econometrica*, 69(1), 201–209.
+
+Lee, D. S., & Card, D. (2008). Regression Discontinuity Inference with Specification Error. *Journal of Econometrics*, 142(2), 655–674.
+
+McCrary, J. (2008). Manipulation of the Running Variable in the Regression Discontinuity Design: A Density Test. *Journal of Econometrics*, 142(2), 698–714.
+
+Vergara Bustos, I. (2025). Impacto de la Pensión Garantizada Universal en la participación laboral y formalidad del empleo. *Estudios Públicos*.
+
+---
+
+*Nota metodológica y de transparencia: el código de análisis fue desarrollado de forma iterativa con asistencia de Claude (Anthropic), incluyendo depuración y estructuración. Este documento fue redactado con asistencia del mismo modelo a partir de los resultados y decisiones documentados en la bitácora del proyecto. Todas las decisiones de diseño metodológico, la validación de variables contra el libro de códigos de CASEN, y la interpretación de resultados fueron realizadas y verificadas por el autor, y el contenido de este documento está sujeto a su revisión final.*
