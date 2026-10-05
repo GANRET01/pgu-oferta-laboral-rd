@@ -2,7 +2,6 @@
 
 Estudio del efecto de la Pensión Garantizada Universal (PGU, 2022) sobre la participación laboral y las horas trabajadas en Chile, usando un diseño de regresión discontinua (RD) alrededor del umbral de elegibilidad de 65 años, con datos de la Encuesta CASEN 2017 y 2022.
 
-📄 **Columna corta (VoxEU-style):** [`columna_voxeu_pgu.md`](./columna_voxeu_pgu.md)
 📘 **Informe extenso:** [`informe_extenso_PGU.Rmd`](./informe_extenso_PGU.Rmd) — contiene el marco teórico completo, la estrategia de identificación, todos los resultados y el ejercicio de robustez. Este README es solo un resumen de orientación.
 
 ## El proyecto en breve
@@ -53,9 +52,27 @@ El código de este repositorio fue desarrollado de forma iterativa con asistenci
 
 ## Referencias principales
 
-- Bertrand, M., Miller, D., & Mullainathan, S. (2003). Public Policy and Extended Families: Evidence from Pensions in South Africa. *The World Bank Economic Review*, 17(1), 27–50.
-- Cattaneo, M. D., Idrobo, N., & Titiunik, R. (2019–2024). *A Practical Introduction to Regression Discontinuity Designs*. Cambridge University Press.
-- Vergara Bustos, I. (2025). Impacto de la Pensión Garantizada Universal en la participación laboral y formalidad del empleo. *Estudios Públicos*.
+Bertrand, M., Miller, D., & Mullainathan, S. (2003). Public Policy and Extended Families: Evidence from Pensions in South Africa. *The World Bank Economic Review*, 17(1), 27–50.
+
+Calonico, S., Cattaneo, M. D., & Titiunik, R. (2014). Robust Nonparametric Confidence Intervals for Regression-Discontinuity Designs. *Econometrica*, 82(6), 2295–2326.
+
+Calonico, S., Cattaneo, M. D., & Farrell, M. H. (2020). Optimal Bandwidth Choice for Robust Bias-Corrected Inference in Regression Discontinuity Designs. *The Econometrics Journal*, 23(2), 192–210.
+
+Cattaneo, M. D., Frandsen, B., & Titiunik, R. (2015). Randomization Inference in the Regression Discontinuity Design: An Application to the Study of Party Advantages in the U.S. Senate. *Journal of Causal Inference*, 3(1), 1–24.
+
+Cattaneo, M. D., Idrobo, N., & Titiunik, R. (2019–2024). *A Practical Introduction to Regression Discontinuity Designs*. Cambridge University Press.
+
+Cattaneo, M. D., Jansson, M., & Ma, X. (2018). Manipulation Testing Based on Density Discontinuity. *The Stata Journal*, 18(1), 234–261.
+
+Cattaneo, M. D., Titiunik, R., & Vazquez-Bare, G. (2016). Inference in Regression Discontinuity Designs under Local Randomization. *The Stata Journal*, 16(2), 331–367.
+
+Hahn, J., Todd, P., & Van der Klaauw, W. (2001). Identification and Estimation of Treatment Effects with a Regression-Discontinuity Design. *Econometrica*, 69(1), 201–209.
+
+Lee, D. S., & Card, D. (2008). Regression Discontinuity Inference with Specification Error. *Journal of Econometrics*, 142(2), 655–674.
+
+McCrary, J. (2008). Manipulation of the Running Variable in the Regression Discontinuity Design: A Density Test. *Journal of Econometrics*, 142(2), 698–714.
+
+Vergara Bustos, I. (2025). Impacto de la Pensión Garantizada Universal en la participación laboral y formalidad del empleo. *Estudios Públicos*.
 
 # Datos
 Casen 2017
