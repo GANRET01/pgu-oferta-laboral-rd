@@ -21,13 +21,15 @@ Esto habilita una comparación adicional: si el salto en el comportamiento labor
 ## Primer resultado: los incentivos sí se modificaron con la reforma
 
 Antes de examinar los efectos, corresponde verificar que el "tratamiento" ocurrió de verdad. La Figura 1 presenta la probabilidad de recibir el beneficio solidario según la edad, centrada en el corte: esta asciende desde prácticamente cero hasta cerca del 50% justo a los 65 años.
-![](Files/matovador%202022.png)
+<img width="329" height="203" alt="motivador" src="https://github.com/user-attachments/assets/bde78dbf-80ed-4726-8900-132784a234b0" />
+
 *Figura 1. Probabilidad de recibir la PGU, CASEN 2022. El salto discreto en el umbral constituye la base de la identificación: confirma que cruzar los 65 años altera sustancialmente el acceso al beneficio, lo que permite aislar su efecto sobre el comportamiento laboral.*
 
 ## El hallazgo central: el ajuste ocurre en las horas, no en la decisión de trabajar
 
 En el segmento de ingreso donde la reforma realmente amplió la cobertura (percentiles 60-90), el contraste entre ambos años resulta nítido:
-![](Files/000012.png)
+<img width="360" height="172" alt="000012" src="https://github.com/user-attachments/assets/7185e580-9ad0-4ff3-b6dc-6d3578e99da4" />
+
 
 *Figura 2. Efecto de cruzar los 65 años sobre las horas semanales trabajadas, percentil 60-90 de ingreso. En 2017 —cuando este tramo de ingreso no calificaba al sistema solidario— no se observa reducción alguna; de hecho, el punto estimado es positivo. En 2022 —cuando sí calificó gracias a la PGU— el efecto equivale a una caída de 4.5 horas semanales, con intervalos de confianza que no se solapan entre ambos años.*
 
