@@ -82,5 +82,5 @@ Casen 2022
 https://bidat.gob.cl/details/ficha/dataset/base-de-datos-casen-2022
 
 ---
-
+Si encuentras un error, o quieres discutir el trabajo, escríbeme! El feedback siempre es bien recibido. 
 **Autor:** Gonzalo Reyes 
